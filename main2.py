@@ -688,9 +688,9 @@ class EqualizerPanel(QWidget):
 
         self._fc         = 0.0
 
-        self._alpha      = 1.0           # EMA factor for amplitude only
+        self._alpha      = 0.1           # EMA factor for amplitude only
 
-        self._s1         = None           # smoothed amplitude (dB)
+        self._s1         = 1              # smoothed amplitude (dB)
 
         self._ant1_amplitude_db = None    # peak amplitude (dB), antenna 1
 
