@@ -49,7 +49,7 @@ class SpectrumWidget(QWidget):
                                      rb_lpf_rx_meas1, fft_size, samp_rate,
                                      _ORANGE, refresh_ms=refresh_ms)
 
-        split = _splitter(Qt.Qt.Vertical)
+        split = _splitter(Qt.Qt.Horizontal)
         for w in (self._pre, self._post, self._peak):
             split.addWidget(w)
         split.setSizes([1, 1, 1])
@@ -58,6 +58,21 @@ class SpectrumWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         outer.addWidget(split)
+
+    # ── Only run while this tab is on screen ──────────────────────────────
+    # Three 4096-point FFTs and three full redraws per frame is the
+    # heaviest thing in the UI, and none of it is needed while the user is
+    # looking at another tab.  Unlike the dashboard, nothing here feeds the
+    # recorder, so pausing is purely a saving.
+    def showEvent(self, event):
+        super().showEvent(event)
+        for w in self._each():
+            w.set_active(True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        for w in self._each():
+            w.set_active(False)
 
     # ── Live settings (mirrors UnifiedDashboard's API) ────────────────────
     def _each(self):

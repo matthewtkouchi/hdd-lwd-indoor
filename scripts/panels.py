@@ -98,7 +98,11 @@ class FFTPanel(QWidget):
         _configure_pg_plot(self._pw, trace_color)
         self._pw.setLabel('left',   'dB', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.setLabel('bottom', 'Hz', **{'color': _TEXT_DIM, 'font-size': '8pt'})
-        self._pw.setYRange(-80, 20, padding=0)
+        # Auto-range Y from the start: a fixed -80..20 dB frame hid the
+        # trace whenever the real level sat outside it, and meant clicking
+        # pyqtgraph's 'A' button on every panel at every launch.  X stays
+        # pinned to the frequency span, which is not a matter of taste.
+        self._pw.enableAutoRange(axis='y')
         self._pw.setMinimumHeight(140)
         layout.addWidget(self._pw)
 
@@ -108,6 +112,18 @@ class FFTPanel(QWidget):
         self._timer.setInterval(refresh_ms)
         self._timer.timeout.connect(self._update)
         self._timer.start()
+
+    def set_active(self, active: bool):
+        """Run or pause this panel's refresh timer.
+
+        Purely a display panel, so pausing it while its tab is hidden
+        costs nothing and saves a full FFT plus a redraw per frame.
+        """
+        if active:
+            if not self._timer.isActive():
+                self._timer.start()
+        else:
+            self._timer.stop()
 
     # ── Live setters (see UnifiedDashboard) ───────────────────────────────
     def set_center_freq(self, fc: float):
@@ -475,7 +491,7 @@ class PeakSearchPanel(QWidget):
         _configure_pg_plot(self._pw, trace_color)
         self._pw.setLabel('left',   'dB', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.setLabel('bottom', 'Hz', **{'color': _TEXT_DIM, 'font-size': '8pt'})
-        self._pw.setYRange(-80, 20, padding=0)
+        self._pw.enableAutoRange(axis='y')       # see FFTPanel
         self._pw.setMinimumHeight(140)
         layout.addWidget(self._pw)
 
@@ -495,6 +511,18 @@ class PeakSearchPanel(QWidget):
         self._timer.setInterval(refresh_ms)
         self._timer.timeout.connect(self._update)
         self._timer.start()
+
+    def set_active(self, active: bool):
+        """Run or pause this panel's refresh timer.
+
+        Purely a display panel, so pausing it while its tab is hidden
+        costs nothing and saves a full FFT plus a redraw per frame.
+        """
+        if active:
+            if not self._timer.isActive():
+                self._timer.start()
+        else:
+            self._timer.stop()
 
     # ── Live setters ──────────────────────────────────────────────────────
     def set_center_freq(self, fc: float):
