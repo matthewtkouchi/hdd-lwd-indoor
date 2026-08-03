@@ -23,7 +23,7 @@
     "synth_pipe_phase_deg": 90.0,
     "synth_pipe_distance_m": 5.0,
     "synth_pipe_sigma_m": 0.5,
-    "synth_pipe_speed_mps": 0.25,
+    "synth_pipe_speed_mps": 0.0,
     "synth_pipe_update_ms": 50
   },
   "profiles": {
@@ -50,7 +50,7 @@
       "synth_pipe_phase_deg": 90.0,
       "synth_pipe_distance_m": 5.0,
       "synth_pipe_sigma_m": 0.5,
-      "synth_pipe_speed_mps": 0.25,
+      "synth_pipe_speed_mps": 0.0,
       "synth_pipe_update_ms": 50
     },
     "indoor_demo_v1": {
@@ -76,7 +76,7 @@
       "synth_pipe_phase_deg": 90.0,
       "synth_pipe_distance_m": 5.0,
       "synth_pipe_sigma_m": 0.5,
-      "synth_pipe_speed_mps": 0.25,
+      "synth_pipe_speed_mps": 0.0,
       "synth_pipe_update_ms": 50
     }
   }

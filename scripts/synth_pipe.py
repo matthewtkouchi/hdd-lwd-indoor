@@ -91,14 +91,19 @@ class SynthPipeInjector(QtCore.QObject):
 
     # ── timer tick ────────────────────────────────────────────────────────
     def _tick(self):
-        x   = self.speed_mps * (time.monotonic() - self._t0)
-        env = np.exp(-((x - self.distance_m) ** 2)
-                     / (2.0 * self.sigma_m ** 2))
-        k   = (self._p_hat
-               * 10.0 ** (self.s_over_p_db / 20.0)
-               * np.exp(1j * np.deg2rad(self.phase_deg))
-               * env)
+        if self.speed_mps <= 0.0:
+            # Static pipe: full-strength echo added constantly while armed.
+            env, status = 1.0, "⦿ SYNTH PIPE: ON (static)"
+        else:
+            # Fly-by: bit advances from 0 at speed_mps toward the pipe.
+            x   = self.speed_mps * (time.monotonic() - self._t0)
+            env = np.exp(-((x - self.distance_m) ** 2)
+                         / (2.0 * self.sigma_m ** 2))
+            status = (f"⦿ SYNTH PIPE: x={x:5.1f} m   "
+                      f"pipe@{self.distance_m:.1f} m   env={env:.3f}")
+        k = (self._p_hat
+             * 10.0 ** (self.s_over_p_db / 20.0)
+             * np.exp(1j * np.deg2rad(self.phase_deg))
+             * env)
         self._mult.set_k(complex(k))
-        self.status_changed.emit(
-            f"⦿ SYNTH PIPE: x={x:5.1f} m   pipe@{self.distance_m:.1f} m   "
-            f"env={env:.3f}", True)
+        self.status_changed.emit(status, True)

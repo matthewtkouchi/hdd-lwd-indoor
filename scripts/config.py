@@ -62,7 +62,7 @@ class AppConfig:
     synth_pipe_phase_deg:   float = 90.0    # echo phase rel. to P (deg; eddy ~ quadrature)
     synth_pipe_distance_m:  float = 5.0     # pipe position along the bore (m)
     synth_pipe_sigma_m:     float = 0.5     # Gaussian half-width of the crossing (m)
-    synth_pipe_speed_mps:   float = 0.25    # simulated bit advance while armed (m/s)
+    synth_pipe_speed_mps:   float = 0.0     # 0 = static pipe while armed; >0 = fly-by sim (m/s)
     synth_pipe_update_ms:   int   = 50      # injector gain-update cadence (ms)
 
     # ── Recording / file outputs ──────────────────────────────────────────
