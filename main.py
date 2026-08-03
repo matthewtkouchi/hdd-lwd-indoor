@@ -178,6 +178,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             refresh_ms=cfg.plot_refresh_ms,
             emit_ms=cfg.emit_interval_ms,
             rolling_window_s=cfg.rolling_window_s,
+            power_cal_offset_db=cfg.power_cal_offset_db,
+            power_unit=cfg.power_unit,
         )
         self.dashboard.set_center_freq(self.my_fc)
         self.dashboard.set_band(self.band)
@@ -385,6 +387,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         "emit_interval_ms", # rolling-chart / recorder cadence
         "rolling_window_s", # rolling-chart span (applied on the next sample)
         "restart_settle_s", # only read during teardown
+        "power_cal_offset_db",  # display scale only
+        "power_unit",
         "lpf_cutoff_hz",    # fft_filter_ccc.set_taps() is a runtime call
         "lpf_transition_hz",
         "spectrum_span_hz", # display only
@@ -449,6 +453,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             self.set_rem_file2(os.path.join(self.out_dir, cfg.remote_file_2))
         if "ema_alpha" in changed:
             self.dashboard.set_ema_alpha(cfg.ema_alpha)
+        if "power_cal_offset_db" in changed or "power_unit" in changed:
+            self.dashboard.set_power_cal(cfg.power_cal_offset_db, cfg.power_unit)
         if "plot_fps" in changed:
             self.dashboard.set_refresh_ms(cfg.plot_refresh_ms)
         if "spectrum_fps" in changed:

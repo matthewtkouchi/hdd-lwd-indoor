@@ -33,10 +33,12 @@ from scripts.config import (
 from scripts.validate import validate_profile
 
 try:
-    from scripts.ui_kit import _BG, _PANEL, _BORDER, _TEAL, _TEAL_DIM, _TEXT, _TEXT_DIM
+    from scripts.ui_kit import (_BG, _PANEL, _BORDER, _TEAL, _TEAL_DIM, _TEXT,
+                                _TEXT_DIM, _TEXT_BRIGHT)
 except Exception:                       # ui_kit optional; fall back to neutral colors
     _BG = _PANEL = "#101010"; _BORDER = "#333"; _TEAL = "#00ffcc"
     _TEAL_DIM = "#005544"; _TEXT = "#cccccc"; _TEXT_DIM = "#888888"
+    _TEXT_BRIGHT = "#ffffff"
 
 # Editable fields the ribbon exposes (subset of the full profile).
 RIBBON_KEYS = ["samp_rate_hz", "center_freq_hz", "fft_size",
@@ -85,7 +87,7 @@ class SettingsRibbon(QWidget):
     def _build_ui(self):
         self.setStyleSheet(f"""
             QWidget {{ background:{_PANEL}; color:{_TEXT}; font-family:'Courier New'; font-size:11px; }}
-            QLabel  {{ color:{_TEXT_DIM}; }}
+            QLabel  {{ color:{_TEXT_BRIGHT}; }}
             QPushButton {{ background:{_TEAL_DIM}; color:{_TEAL}; border:1px solid {_TEAL};
                            padding:3px 8px; }}
             QPushButton:hover {{ background:{_TEAL}; color:{_BG}; }}

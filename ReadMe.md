@@ -69,6 +69,37 @@ The ribbon is the control strip above the dashboard tabs. It has two rows: profi
 
 ---
 
+#### Absolute power calibration
+
+The amplitude readout is now a real measurement in **dBFS**: 0 dB is a full-scale complex tone at the converter.
+
+The old number was not. It computed `20*log10(|FFT(x*w)| / sqrt(sum(w^2)))`, which reads **+34.4 dB high** at `fft_size = 4096` — and the offset is `20*log10(sqrt(2N/3))`, so it moved with the FFT size:
+
+| fft_size | old reading was high by |
+|---|---|
+| 1024 | +28.3 dB |
+| 4096 | +34.4 dB |
+| 16384 | +40.4 dB |
+
+So the same signal read 12 dB apart at the two ends of the ribbon's `fft_size` list. It was fine as a relative indicator at a fixed FFT size and meaningless as anything else.
+
+Two fixes make it absolute:
+
+1. **Normalise by `sum(w)`, not `sqrt(sum(w^2))`.** A complex tone of amplitude A on a bin centre produces a peak of `|X| = A * sum(w)`, so this makes the scale read the tone's amplitude directly, at any `fft_size`.
+2. **Sum the main lobe instead of reading the peak bin.** A tone almost never lands exactly on a bin, and Hanning scalloping costs up to 1.42 dB when it falls halfway between two. Summing `|X|^2` across the main lobe and normalising by Parseval recovers the true power wherever it falls — verified exact at 0, 0.1, 0.25 and 0.5 bins of offset, and identical at `fft_size` 1024 / 4096 / 16384.
+
+##### Getting to dBm
+
+dBFS is referenced to the converter, not the antenna. To read absolute power you need one measured offset, which absorbs the Red Pitaya input range (the LV/HV jumper), the 50 Ω termination, and any LNA or cable loss ahead of the receiver:
+
+1. Feed the RX input a source of known level — a signal generator at, say, −30 dBm at the centre frequency.
+2. Read the `SIG 1` value on the dashboard (with `power_cal_offset_db = 0` it is dBFS).
+3. Set `power_cal_offset_db = known_dBm − shown_dBFS` and `power_unit = "dBm"`. Both apply live from APPLY.
+
+The offset is *measured* rather than derived on purpose. A STEMlab 125-14 in LV mode has a ±1 V input, which for a full-scale sine into 50 Ω works out near +10 dBm, so an offset around +10 is the expected ballpark — but that assumes the jumper position, the termination and gr-osmosdr's full-scale convention all match, and getting any of the three wrong puts the answer out by tens of dB. One measurement settles all of it.
+
+Two caveats for link-budget work. The readout is the *strongest bin in the search band*, so it is only the carrier's power if the marker on the SPECTRUM tab's PEAK SEARCH plot sits at 0 Hz offset. And it measures the total received signal, which underground is dominated by direct coupling — the scattered echo is 30–85 dB below it and is not separable this way.
+
 #### The SPECTRUM tab
 
 The frequency-domain views live in their own tab, next to SDR DASHBOARD and LWD PLOTTER. Three plots, all of receiver 1, tapped at three points:

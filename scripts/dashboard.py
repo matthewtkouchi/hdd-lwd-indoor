@@ -29,6 +29,7 @@ class UnifiedDashboard(QWidget):
                  fft_size=4096, samp_rate=100_000,
                  ema_alpha=0.1, refresh_ms=20, emit_ms=100,
                  rolling_window_s=60.0,
+                 power_cal_offset_db=0.0, power_unit='dBFS',
                  parent=None):
         super().__init__(parent)
         self.setStyleSheet(_STYLESHEET)
@@ -51,7 +52,9 @@ class UnifiedDashboard(QWidget):
                                   fft_size, samp_rate,
                                   ema_alpha=ema_alpha,
                                   refresh_ms=refresh_ms,
-                                  emit_ms=emit_ms)
+                                  emit_ms=emit_ms,
+                                  power_cal_offset_db=power_cal_offset_db,
+                                  power_unit=power_unit)
 
         top_split.addWidget(self._phase_panel)
         top_split.addWidget(self._eq)
@@ -82,6 +85,9 @@ class UnifiedDashboard(QWidget):
     # ── Live settings (applied without restarting the app) ────────────────
     def set_ema_alpha(self, alpha):
         self._eq.set_ema_alpha(alpha)
+
+    def set_power_cal(self, offset_db, unit=None):
+        self._eq.set_power_cal(offset_db, unit)
 
     def set_refresh_ms(self, refresh_ms):
         self._phase_panel.set_refresh_ms(refresh_ms)

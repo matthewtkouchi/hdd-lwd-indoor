@@ -40,6 +40,33 @@ from .ui_kit import (
 )
 
 
+def spectrum_dbfs(data, win, win_sum):
+    """Windowed spectrum in dBFS, where 0 dB = a full-scale complex tone.
+
+    A complex tone of amplitude A sitting on a bin centre produces a peak
+    of |X| = A * sum(w), so dividing by sum(w) makes the vertical scale
+    read the tone's amplitude directly and, unlike the old
+    /sqrt(sum(w**2)) normalisation, keeps that true at every fft_size.
+    """
+    fv = np.fft.fftshift(np.fft.fft(data * win))
+    return fv, 20.0 * np.log10(np.abs(fv) / win_sum + 1e-15)
+
+
+def tone_dbfs(fv, idx, win_sq_sum, n, half=3):
+    """Power of the tone at bin ``idx``, in dBFS, from its main lobe.
+
+    Reading the peak bin alone loses up to 1.42 dB (Hanning scalloping)
+    when the tone sits between bins, which it generally does.  Summing
+    |X|**2 across the main lobe and normalising by Parseval
+    (sum_k |X[k]|**2 = N * sum_n |x[n]w[n]|**2) recovers the true power
+    regardless of where the tone falls, and independently of fft_size.
+    """
+    lo = max(0, idx - half)
+    hi = min(len(fv), idx + half + 1)
+    power = np.sum(np.abs(fv[lo:hi]) ** 2) / (n * win_sq_sum)
+    return 10.0 * np.log10(power + 1e-30)
+
+
 def roi_peak(rf, mag, fc, band):
     """Index and level of the strongest FFT bin inside the search band.
 
@@ -87,6 +114,7 @@ class FFTPanel(QWidget):
         self._sel       = None       # bins inside the span (None = all)
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
+        self._win_sum   = float(np.sum(self._win))
         self._bb_freqs  = np.fft.fftshift(
             np.fft.fftfreq(fft_size, 1.0 / samp_rate)
         )
@@ -137,6 +165,7 @@ class FFTPanel(QWidget):
         self._fft_size  = fft_size
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
+        self._win_sum   = float(np.sum(self._win))
         self._rebuild_freq_axis()
 
     def set_samp_rate(self, samp_rate: float):
@@ -184,9 +213,7 @@ class FFTPanel(QWidget):
         data = self._rb.read()
         if len(data) != self._fft_size:
             return
-        d_win   = data * self._win
-        fft_out = np.fft.fftshift(np.fft.fft(d_win))
-        mag     = 20.0 * np.log10(np.abs(fft_out) / np.sqrt(self._win_power) + 1e-12)
+        _fv, mag = spectrum_dbfs(data, self._win, self._win_sum)
         rf = self._bb_freqs + self._fc
         if self._sel is None:
             self._curve.setData(rf, mag)
@@ -276,6 +303,7 @@ class EqualizerPanel(QWidget):
     def __init__(self, rb_lpf_rx_meas1, rb_multiply_conjugate_rx_txconj,
                  fft_size=4096, samp_rate=100_000,
                  ema_alpha=0.1, refresh_ms=20, emit_ms=100,
+                 power_cal_offset_db=0.0, power_unit='dBFS',
                  parent=None):
         super().__init__(parent)
         self._rb_lpf_rx_meas1 = rb_lpf_rx_meas1
@@ -285,12 +313,16 @@ class EqualizerPanel(QWidget):
         self._samp_rate  = samp_rate
         self._win        = np.hanning(fft_size).astype(np.float32)
         self._win_power  = float(np.sum(self._win ** 2))
+        self._win_sum    = float(np.sum(self._win))
         self._bb_freqs   = np.fft.fftshift(
             np.fft.fftfreq(fft_size, 1.0 / samp_rate)
         )
         self._band       = [-30_000, 30_000]
         self._fc         = 0.0
         self._alpha      = ema_alpha     # EMA factor for amplitude only
+        self._cal_db     = float(power_cal_offset_db)
+        self._unit       = str(power_unit)
+        self._bar_floor_db = -140.0      # below any real reading in dBFS
         self._s1         = 1           # smoothed amplitude (dB)
         self._ant1_amplitude_db = None    # peak amplitude (dB), antenna 1
         self._ant1_phase_deg    = None    # phase diff (deg), magnitude-weighted
@@ -318,7 +350,7 @@ class EqualizerPanel(QWidget):
             layout.addWidget(_heading('Amplitude & Phase  /  ROI'))
 
             row = QHBoxLayout()
-            self._lbl1 = QLabel('SIG 1:   ---   dB')
+            self._lbl1 = QLabel('SIG 1:   ---')
             self._lbl2 = QLabel('PHASE:   ---   deg')
             self._lbl1.setObjectName('value_teal')
             self._lbl2.setObjectName('value_orange')
@@ -334,8 +366,8 @@ class EqualizerPanel(QWidget):
             # ── Amplitude bar (SIG 1, dB) ─────────────────────────────────
             self._pw_amp = pg.PlotWidget()
             _configure_pg_plot(self._pw_amp, _TEAL)
-            self._pw_amp.setLabel('left', 'dBFS', **{'color': _TEXT_DIM, 'font-size': '8pt'})
-            self._pw_amp.setYRange(-50, -10, padding=0.05)
+            self._pw_amp.setLabel('left', self._unit, **{'color': _TEXT_DIM, 'font-size': '8pt'})
+            self._pw_amp.enableAutoRange(axis='y')
             self._pw_amp.setXRange(-0.6, 0.6, padding=0)
             self._pw_amp.getAxis('bottom').setTicks([[(0, 'SIG 1')]])
             self._pw_amp.setMinimumHeight(90)
@@ -355,7 +387,8 @@ class EqualizerPanel(QWidget):
 
             layout.addLayout(plots_row)
 
-            self._bar1 = pg.BarGraphItem(x=[0], y0=-50, y1=-50, width=0.55,
+            self._bar1 = pg.BarGraphItem(x=[0], y0=self._bar_floor_db,
+                                         y1=self._bar_floor_db, width=0.55,
                                          brush=pg.mkBrush(_TEAL_DIM),
                                          pen=pg.mkPen(_TEAL, width=1))
             self._bar2 = pg.BarGraphItem(x=[0], y0=0, y1=0, width=0.55,
@@ -378,6 +411,13 @@ class EqualizerPanel(QWidget):
     def set_ema_alpha(self, alpha: float):
         self._alpha = alpha
 
+    def set_power_cal(self, offset_db: float, unit: str = None):
+        """Set the dBFS -> absolute-power offset and its unit label."""
+        self._cal_db = float(offset_db)
+        if unit:
+            self._unit = str(unit)
+        self._s1 = None          # the scale moved; re-seed the EMA
+
     def set_refresh_ms(self, refresh_ms: int):
         self._timer.setInterval(refresh_ms)
 
@@ -388,6 +428,7 @@ class EqualizerPanel(QWidget):
         self._fft_size  = fft_size
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
+        self._win_sum   = float(np.sum(self._win))
         self._rebuild_freq_axis()
 
     def set_samp_rate(self, samp_rate: float):
@@ -416,17 +457,21 @@ class EqualizerPanel(QWidget):
         if len(d_prod) != self._fft_size:
             return
 
-        # ── peak amplitude (dB) in ROI band, antenna 1 ────────────────────
-        dw   = d1 * self._win
-        fv   = np.fft.fftshift(np.fft.fft(dw))
-        mag  = 20.0 * np.log10(np.abs(fv) / np.sqrt(self._win_power) + 1e-12)
-        rf   = self._bb_freqs + self._fc
+        # ── absolute tone power in the search band, antenna 1 ─────────────
+        fv, mag = spectrum_dbfs(d1, self._win, self._win_sum)
+        rf = self._bb_freqs + self._fc
         full_idx, amp_db = roi_peak(rf, mag, self._fc, self._band)
         if full_idx is None:
             return
         # Where the peak actually is -- not assumed to be the carrier.
         self._peak_rf_hz     = float(rf[full_idx])
         self._peak_offset_hz = float(rf[full_idx] - self._fc)
+
+        # Absolute power of that tone: main-lobe sum (immune to scalloping
+        # and to fft_size) plus the measured calibration offset.  With the
+        # offset at 0 this reads dBFS, where 0 dB is a full-scale tone.
+        amp_db = tone_dbfs(fv, full_idx, self._win_power,
+                           self._fft_size) + self._cal_db
 
         # ── phase difference: angle of the complex mean of rx · conj(tx) ──
         # Magnitude-weighted circular mean — robust against ±π wrap and
@@ -455,7 +500,9 @@ class EqualizerPanel(QWidget):
         # ── update bars ───────────────────────────────────────────────────
         self._pw_amp.removeItem(self._bar1)
         self._pw_phase.removeItem(self._bar2)
-        self._bar1 = pg.BarGraphItem(x=[0], y0=-50, y1=max(-50, min(-10, p1)),
+        # Bar grows from a floor well below any real reading; the view
+        # auto-ranges, so no fixed dB window can clip the measurement.
+        self._bar1 = pg.BarGraphItem(x=[0], y0=self._bar_floor_db, y1=p1,
                                      width=0.55,
                                      brush=pg.mkBrush(_TEAL_DIM),
                                      pen=pg.mkPen(_TEAL, width=1))
@@ -469,7 +516,7 @@ class EqualizerPanel(QWidget):
         self._pw_amp.addItem(self._bar1)
         self._pw_phase.addItem(self._bar2)
 
-        self._lbl1.setText(f'SIG 1:  {p1:+.2f} dB')
+        self._lbl1.setText(f'SIG 1:  {p1:+.2f} {self._unit}')
         self._lbl2.setText(f'PHASE:  {p2:+.2f} deg')
 
     def _copy_values(self):
@@ -506,6 +553,7 @@ class PeakSearchPanel(QWidget):
         self._band      = [-30_000, 30_000]
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
+        self._win_sum   = float(np.sum(self._win))
         self._bb_freqs  = np.fft.fftshift(
             np.fft.fftfreq(fft_size, 1.0 / samp_rate))
 
@@ -571,6 +619,7 @@ class PeakSearchPanel(QWidget):
         self._fft_size  = fft_size
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
+        self._win_sum   = float(np.sum(self._win))
         self._rebuild_freq_axis()
 
     def set_samp_rate(self, samp_rate: float):
@@ -612,9 +661,7 @@ class PeakSearchPanel(QWidget):
         data = self._rb.read()
         if len(data) != self._fft_size:
             return
-        fft_out = np.fft.fftshift(np.fft.fft(data * self._win))
-        mag = 20.0 * np.log10(
-            np.abs(fft_out) / np.sqrt(self._win_power) + 1e-12)
+        _fv, mag = spectrum_dbfs(data, self._win, self._win_sum)
         rf = self._bb_freqs + self._fc
         if self._sel is None:
             self._curve.setData(rf, mag)

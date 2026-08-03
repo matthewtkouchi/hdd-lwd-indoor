@@ -25,7 +25,9 @@
     "lpf_transition_hz": 100.0,
     "spectrum_span_hz": 1000.0,
     "spectrum_fps": 10,
-    "plot_antialias": false
+    "plot_antialias": false,
+    "power_cal_offset_db": 0.0,
+    "power_unit": "dBFS"
   },
   "profiles": {
     "default": {
@@ -53,7 +55,9 @@
       "lpf_transition_hz": 100.0,
       "spectrum_span_hz": 1000.0,
       "spectrum_fps": 10,
-      "plot_antialias": false
+      "plot_antialias": false,
+      "power_cal_offset_db": 0.0,
+      "power_unit": "dBFS"
     },
     "indoor_demo_v1": {
       "rx_addr": "169.254.9.106",
@@ -80,7 +84,9 @@
       "lpf_transition_hz": 100.0,
       "spectrum_span_hz": 1000.0,
       "spectrum_fps": 10,
-      "plot_antialias": false
+      "plot_antialias": false,
+      "power_cal_offset_db": 0.0,
+      "power_unit": "dBFS"
     }
   }
 }

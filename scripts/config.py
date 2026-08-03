@@ -72,6 +72,20 @@ class AppConfig:
     lpf_cutoff_hz:     float = 1000.0       # passband edge, baseband Hz
     lpf_transition_hz: float = 100.0        # rolloff width (narrower = more taps)
 
+    # ── Absolute power calibration ────────────────────────────────────────
+    # The amplitude readout is computed in dBFS: 0 dB = a full-scale complex
+    # tone at the ADC.  That is a real, fft_size-independent number, but it
+    # is referenced to the converter, not to the antenna.  To read absolute
+    # power, inject a source of known level, note the dBFS the panel shows,
+    # and set
+    #     power_cal_offset_db = known_dBm - shown_dBFS
+    # then set power_unit to "dBm".  The offset absorbs the Red Pitaya input
+    # range (LV/HV jumper), the 50 ohm termination, and any LNA or cable loss
+    # ahead of the receiver -- which is why it is measured rather than
+    # assumed.  See ReadMe.md for the procedure.
+    power_cal_offset_db: float = 0.0
+    power_unit:          str   = "dBFS"
+
     # ── DSP / display tuning ──────────────────────────────────────────────
     # Spectrum tab: half-span of the frequency axis, in Hz either side of
     # centre.  0 = the whole sampled bandwidth.  Defaults to the LPF

@@ -33,6 +33,7 @@ _ORANGE   = '#ff7040'
 _ORG_DIM  = '#5a2510'
 _TEXT     = '#88ccbb'
 _TEXT_DIM = '#2a6055'
+_TEXT_BRIGHT = '#ffffff'   # ribbon field labels: legible against the panel
 
 _STYLESHEET = f"""
     QWidget {{

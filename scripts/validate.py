@@ -197,6 +197,16 @@ def validate_profile(profile: dict):
             warnings.append(f"{key}: {v} clamped to {clamped} "
                             f"(allowed {lo_lim}–{hi_lim}).")
 
+    # ── power calibration ─────────────────────────────────────────────────
+    cal = _num("power_cal_offset_db", float)
+    if cal is not None and abs(cal) > 200.0:
+        warnings.append(
+            f"power_cal_offset_db {cal:+,.1f} dB is implausibly large; check "
+            f"it was derived as known_dBm - shown_dBFS.")
+    unit = clean.get("power_unit")
+    if unit is not None and not str(unit).strip():
+        errors.append("power_unit: must not be empty (e.g. 'dBFS' or 'dBm').")
+
     # ── receivers ─────────────────────────────────────────────────────────
     nrx = _num("num_receivers", int)
     if nrx is not None and nrx not in (1, 2):
