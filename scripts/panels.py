@@ -82,6 +82,8 @@ class FFTPanel(QWidget):
         self._fft_size  = fft_size
         self._samp_rate = samp_rate
         self._fc        = 0.0
+        self._span_hz   = 0.0        # 0 = draw the whole sampled bandwidth
+        self._sel       = None       # bins inside the span (None = all)
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
         self._bb_freqs  = np.fft.fftshift(
@@ -103,7 +105,7 @@ class FFTPanel(QWidget):
         # pyqtgraph's 'A' button on every panel at every launch.  X stays
         # pinned to the frequency span, which is not a matter of taste.
         self._pw.enableAutoRange(axis='y')
-        self._pw.setMinimumHeight(140)
+        self._pw.setMinimumHeight(100)
         layout.addWidget(self._pw)
 
         self._curve = self._pw.plot(pen=pg.mkPen(color=trace_color, width=1.2))
@@ -128,8 +130,7 @@ class FFTPanel(QWidget):
     # ── Live setters (see UnifiedDashboard) ───────────────────────────────
     def set_center_freq(self, fc: float):
         self._fc = fc
-        rf = self._bb_freqs + fc
-        self._pw.setXRange(rf[0], rf[-1], padding=0)
+        self._apply_x_range()
 
     def set_fft_size(self, fft_size: int):
         self._fft_size  = fft_size
@@ -144,11 +145,39 @@ class FFTPanel(QWidget):
     def set_refresh_ms(self, refresh_ms: int):
         self._timer.setInterval(refresh_ms)
 
+    def set_span_hz(self, span_hz: float):
+        """Limit the view to +/- span_hz around centre (0 = full band).
+
+        This is not only a zoom: the bins outside the span are dropped
+        before the curve is handed to pyqtgraph, and the number of points
+        drawn per frame is what actually costs time.  At +/-1 kHz of a
+        +/-50 kHz band that is ~82 points instead of 4096.
+        """
+        self._span_hz = max(0.0, float(span_hz))
+        self._rebuild_span_mask()
+
+    def _rebuild_span_mask(self):
+        if self._span_hz <= 0:
+            self._sel = None
+        else:
+            self._sel = np.abs(self._bb_freqs) <= self._span_hz
+            if not np.any(self._sel):        # span finer than one bin
+                self._sel = None
+        self._apply_x_range()
+
+    def _apply_x_range(self):
+        rf = self._bb_freqs + self._fc
+        if self._sel is None:
+            self._pw.setXRange(rf[0], rf[-1], padding=0)
+        else:
+            sub = rf[self._sel]
+            self._pw.setXRange(sub[0], sub[-1], padding=0)
+
     def _rebuild_freq_axis(self):
         self._bb_freqs = np.fft.fftshift(
             np.fft.fftfreq(self._fft_size, 1.0 / self._samp_rate)
         )
-        self.set_center_freq(self._fc)
+        self._rebuild_span_mask()
 
     def _update(self):
         data = self._rb.read()
@@ -157,7 +186,11 @@ class FFTPanel(QWidget):
         d_win   = data * self._win
         fft_out = np.fft.fftshift(np.fft.fft(d_win))
         mag     = 20.0 * np.log10(np.abs(fft_out) / np.sqrt(self._win_power) + 1e-12)
-        self._curve.setData(self._bb_freqs + self._fc, mag)
+        rf = self._bb_freqs + self._fc
+        if self._sel is None:
+            self._curve.setData(rf, mag)
+        else:
+            self._curve.setData(rf[self._sel], mag[self._sel])
 
 
 class PhasePanel(QWidget):
@@ -184,7 +217,7 @@ class PhasePanel(QWidget):
         self._pw.setLabel('left',   'rad', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.setLabel('bottom', 'ms',  **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.setYRange(-np.pi, np.pi, padding=0.05)
-        self._pw.setMinimumHeight(140)
+        self._pw.setMinimumHeight(100)
         layout.addWidget(self._pw)
 
         self._curve = self._pw.plot(pen=pg.mkPen(color=trace_color, width=1.2))
@@ -306,7 +339,7 @@ class EqualizerPanel(QWidget):
             self._pw_amp.setYRange(-50, -10, padding=0.05)
             self._pw_amp.setXRange(-0.6, 0.6, padding=0)
             self._pw_amp.getAxis('bottom').setTicks([[(0, 'SIG 1')]])
-            self._pw_amp.setMinimumHeight(120)
+            self._pw_amp.setMinimumHeight(90)
             self._pw_amp.setMaximumHeight(200)
             plots_row.addWidget(self._pw_amp)
 
@@ -317,7 +350,7 @@ class EqualizerPanel(QWidget):
             self._pw_phase.setYRange(-180, 180, padding=0.05)
             self._pw_phase.setXRange(-0.6, 0.6, padding=0)
             self._pw_phase.getAxis('bottom').setTicks([[(0, 'PHASE')]])
-            self._pw_phase.setMinimumHeight(120)
+            self._pw_phase.setMinimumHeight(90)
             self._pw_phase.setMaximumHeight(200)
             plots_row.addWidget(self._pw_phase)
 
@@ -469,6 +502,8 @@ class PeakSearchPanel(QWidget):
         self._fft_size  = fft_size
         self._samp_rate = samp_rate
         self._fc        = 0.0
+        self._span_hz   = 0.0        # 0 = draw the whole sampled bandwidth
+        self._sel       = None       # bins inside the span (None = all)
         self._band      = [-30_000, 30_000]
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
@@ -492,7 +527,7 @@ class PeakSearchPanel(QWidget):
         self._pw.setLabel('left',   'dB', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.setLabel('bottom', 'Hz', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.enableAutoRange(axis='y')       # see FFTPanel
-        self._pw.setMinimumHeight(140)
+        self._pw.setMinimumHeight(100)
         layout.addWidget(self._pw)
 
         # Shaded search band. Not movable: it mirrors the ribbon field.
@@ -546,14 +581,31 @@ class PeakSearchPanel(QWidget):
     def set_refresh_ms(self, refresh_ms: int):
         self._timer.setInterval(refresh_ms)
 
+    def set_span_hz(self, span_hz: float):
+        """Limit the view to +/- span_hz around centre (0 = full band).
+
+        Display only: the peak search still runs over every bin in the
+        search band, so a peak outside the visible span is still found and
+        still reported in the readout.
+        """
+        self._span_hz = max(0.0, float(span_hz))
+        self._refresh_ranges()
+
     def _rebuild_freq_axis(self):
         self._bb_freqs = np.fft.fftshift(
             np.fft.fftfreq(self._fft_size, 1.0 / self._samp_rate))
         self._refresh_ranges()
 
     def _refresh_ranges(self):
+        if self._span_hz <= 0:
+            self._sel = None
+        else:
+            self._sel = np.abs(self._bb_freqs) <= self._span_hz
+            if not np.any(self._sel):
+                self._sel = None
         rf = self._bb_freqs + self._fc
-        self._pw.setXRange(rf[0], rf[-1], padding=0)
+        sub = rf if self._sel is None else rf[self._sel]
+        self._pw.setXRange(sub[0], sub[-1], padding=0)
         self._region.setRegion((self._fc + self._band[0],
                                 self._fc + self._band[1]))
 
@@ -565,8 +617,12 @@ class PeakSearchPanel(QWidget):
         mag = 20.0 * np.log10(
             np.abs(fft_out) / np.sqrt(self._win_power) + 1e-12)
         rf = self._bb_freqs + self._fc
-        self._curve.setData(rf, mag)
+        if self._sel is None:
+            self._curve.setData(rf, mag)
+        else:
+            self._curve.setData(rf[self._sel], mag[self._sel])
 
+        # Search the full band regardless of what is on screen.
         idx, amp_db = roi_peak(rf, mag, self._fc, self._band)
         if idx is None:
             self._marker.setData([], [])
@@ -672,7 +728,7 @@ class RollingPanel(QWidget):
         _configure_pg_plot(self._pw_amp, _TEAL)
         self._pw_amp.setLabel('left', 'dBFS', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw_amp.setYRange(*self.AMP_FIXED, padding=0.05)
-        self._pw_amp.setMinimumHeight(120)
+        self._pw_amp.setMinimumHeight(90)
         self._pw_amp.getAxis('bottom').setStyle(showValues=False)
         self._curve_amp = self._pw_amp.plot(pen=pg.mkPen(color=_TEAL, width=1.4))
         layout.addWidget(self._pw_amp)
@@ -696,7 +752,7 @@ class RollingPanel(QWidget):
         self._pw_phase.setLabel('left',   'deg', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw_phase.setLabel('bottom', 's',   **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw_phase.setYRange(*self.PHASE_FIXED, padding=0.05)
-        self._pw_phase.setMinimumHeight(120)
+        self._pw_phase.setMinimumHeight(90)
         self._curve_phase = self._pw_phase.plot(pen=pg.mkPen(color=_ORANGE, width=1.4))
         layout.addWidget(self._pw_phase)
 

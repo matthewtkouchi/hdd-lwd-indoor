@@ -185,8 +185,9 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             rb_lpf_rx_meas1=self.rb_lpf_rx_meas1,
             fft_size=self.fft_size,
             samp_rate=self.samp_rate,
-            refresh_ms=cfg.plot_refresh_ms,
+            refresh_ms=max(1, round(1000 / cfg.spectrum_fps)),
         )
+        self.spectrum.set_span_hz(cfg.spectrum_span_hz)
         self.spectrum.set_center_freq(self.my_fc)
         self.spectrum.set_band(self.band)
 
@@ -235,7 +236,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # All LPFs share one tap list: the designs are identical.
         self.num_receivers = num_receivers = cfg.num_receivers
         self.rx_lpf_taps = rx_lpf_taps = firdes.low_pass(
-            1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING
+            1, rx_samp_rate, cfg.lpf_cutoff_hz, cfg.lpf_transition_hz,
+            window.WIN_HAMMING
         )
         for idx in range(1, num_receivers + 1):
             self._build_rx_chain(idx, f"{addr}:{1000 + idx}", rx_lpf_taps,
@@ -379,6 +381,10 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         "emit_interval_ms", # rolling-chart / recorder cadence
         "rolling_window_s", # rolling-chart span (applied on the next sample)
         "restart_settle_s", # only read during teardown
+        "lpf_cutoff_hz",    # fft_filter_ccc.set_taps() is a runtime call
+        "lpf_transition_hz",
+        "spectrum_span_hz", # display only
+        "spectrum_fps",     # display only
         "file_base", "remote_file_1", "remote_file_2",
     })
     # Everything else (samp_rate_hz, fft_size, num_receivers, the addresses)
@@ -441,7 +447,12 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             self.dashboard.set_ema_alpha(cfg.ema_alpha)
         if "plot_fps" in changed:
             self.dashboard.set_refresh_ms(cfg.plot_refresh_ms)
-            self.spectrum.set_refresh_ms(cfg.plot_refresh_ms)
+        if "spectrum_fps" in changed:
+            self.spectrum.set_refresh_ms(max(1, round(1000 / cfg.spectrum_fps)))
+        if "spectrum_span_hz" in changed:
+            self.spectrum.set_span_hz(cfg.spectrum_span_hz)
+        if "lpf_cutoff_hz" in changed or "lpf_transition_hz" in changed:
+            self._redesign_lpf()
         if "emit_interval_ms" in changed:
             self.dashboard.set_emit_ms(cfg.emit_interval_ms)
         if "rolling_window_s" in changed:
@@ -483,6 +494,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.dashboard.set_center_freq(self.my_fc)
         self.spectrum.set_fft_size(self.fft_size)
         self.spectrum.set_samp_rate(self.samp_rate)
+        self.spectrum.set_span_hz(self.cfg.spectrum_span_hz)
         self.spectrum.set_center_freq(self.my_fc)
         self.spectrum.set_band(self.band)
 
@@ -601,14 +613,28 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
     def set_rx_samp_rate(self, rx_samp_rate):
         self.rx_samp_rate = rx_samp_rate
-        # One design shared by every filter, as at construction time.
+        self._redesign_lpf()
+        self.sdr_rx_meas1.set_sample_rate(self.rx_samp_rate)
+
+    def _redesign_lpf(self):
+        """Redesign the shared LPF taps and push them to the live filters.
+
+        fft_filter_ccc.set_taps() is a runtime call, so cutoff/transition
+        changes apply without rebuilding the flowgraph.  One design is
+        shared by both receivers and the TX reference — they must stay
+        identical or the conjugate product picks up a filter mismatch as
+        a phase error.
+        """
         self.rx_lpf_taps = firdes.low_pass(
-            1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING)
+            1, self.rx_samp_rate, self.cfg.lpf_cutoff_hz,
+            self.cfg.lpf_transition_hz, window.WIN_HAMMING)
         self.lpf_rx_meas1.set_taps(self.rx_lpf_taps)
         if getattr(self, 'lpf_rx_meas2', None) is not None:
             self.lpf_rx_meas2.set_taps(self.rx_lpf_taps)
         self.lpf_tx_ref.set_taps(self.rx_lpf_taps)
-        self.sdr_rx_meas1.set_sample_rate(self.rx_samp_rate)
+        print(f"[lpf] cutoff={self.cfg.lpf_cutoff_hz:g} Hz "
+              f"transition={self.cfg.lpf_transition_hz:g} Hz "
+              f"taps={len(self.rx_lpf_taps)}", flush=True)
 
     def set_rem_file1(self, rem_file1):
         self.rem_file1 = rem_file1

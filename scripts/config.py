@@ -66,7 +66,19 @@ class AppConfig:
     remote_file_1: str = "rx1.bin"          # receiver-1 raw IQ
     remote_file_2: str = "rx2.bin"          # receiver-2 raw IQ
 
+    # ── Receiver low-pass (shared by both RX chains and the TX reference) ─
+    # Redesigned live via set_lpf(); fft_filter_ccc.set_taps() is a runtime
+    # call, so changing these does NOT rebuild the flowgraph.
+    lpf_cutoff_hz:     float = 1000.0       # passband edge, baseband Hz
+    lpf_transition_hz: float = 100.0        # rolloff width (narrower = more taps)
+
     # ── DSP / display tuning ──────────────────────────────────────────────
+    # Spectrum tab: half-span of the frequency axis, in Hz either side of
+    # centre.  0 = the whole sampled bandwidth.  Defaults to the LPF
+    # passband, since everything past it is stopband.  Narrowing this also
+    # cuts the number of points drawn per frame, which is the real cost.
+    spectrum_span_hz: float = 1000.0
+    spectrum_fps:     int   = 10            # spectra refresh slower than the dashboard
     fft_size:         int   = 4096
     ema_alpha:        float = 0.1           # amplitude smoothing (0<a<=1, lower=smoother)
     rolling_window_s: float = 60.0

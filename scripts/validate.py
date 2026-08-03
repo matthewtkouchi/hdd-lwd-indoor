@@ -130,6 +130,41 @@ def validate_profile(profile: dict):
                         f"the ROI is effectively the whole sampled band."
                     )
 
+    # ── receiver low-pass ─────────────────────────────────────────────────
+    cut = _num("lpf_cutoff_hz", float)
+    trans = _num("lpf_transition_hz", float)
+    if cut is not None and sr is not None:
+        nyq = sr / 2.0
+        if cut <= 0:
+            errors.append(f"lpf_cutoff_hz: {cut} must be positive.")
+        elif cut >= nyq:
+            errors.append(
+                f"lpf_cutoff_hz: {cut:,.0f} Hz must be below Nyquist "
+                f"({nyq:,.0f} Hz at {sr:,} S/s); firdes cannot design it.")
+        elif trans is not None and cut + trans > nyq:
+            errors.append(
+                f"lpf_cutoff_hz + lpf_transition_hz ({cut:,.0f} + {trans:,.0f}) "
+                f"exceeds Nyquist ({nyq:,.0f} Hz); the rolloff has no room.")
+    if trans is not None and trans <= 0:
+        errors.append(f"lpf_transition_hz: {trans} must be positive "
+                      f"(it sets the filter length).")
+    elif trans is not None and sr is not None and trans < sr / 20_000.0:
+        warnings.append(
+            f"lpf_transition_hz {trans:,.0f} Hz is very narrow for {sr:,} S/s; "
+            f"the filter will need a great many taps and cost CPU.")
+
+    # ── spectrum display span ─────────────────────────────────────────────
+    span = _num("spectrum_span_hz", float)
+    if span is not None and sr is not None:
+        if span < 0:
+            errors.append(f"spectrum_span_hz: {span} must be >= 0 "
+                          f"(0 means the full sampled bandwidth).")
+        elif span > sr / 2.0:
+            clean["spectrum_span_hz"] = sr / 2.0
+            warnings.append(
+                f"spectrum_span_hz {span:,.0f} clamped to Nyquist "
+                f"({sr/2.0:,.0f} Hz).")
+
     # ── fft_size: sizes the ring buffers and the FFT ──────────────────────
     n = _num("fft_size", int)
     if n is not None:
@@ -149,6 +184,7 @@ def validate_profile(profile: dict):
 
     for key, lo_lim, hi_lim, cast in (
         ("plot_fps", PLOT_FPS_MIN, PLOT_FPS_MAX, int),
+        ("spectrum_fps", PLOT_FPS_MIN, PLOT_FPS_MAX, int),
         ("emit_interval_ms", EMIT_MS_MIN, EMIT_MS_MAX, int),
         ("rolling_window_s", ROLLING_WINDOW_MIN_S, ROLLING_WINDOW_MAX_S, float),
     ):

@@ -81,6 +81,12 @@ The frequency-domain views live in their own tab, next to SDR DASHBOARD and LWD 
 
 The pre-LPF tap is a new vector sink straight off the radio; the measurement path is untouched by it.
 
+**Span and refresh.** `spectrum_span_hz` (ribbon: `spec_span`) sets the half-span of the frequency axis, defaulting to the LPF passband — there is little point looking across ±50 kHz when everything past ±1 kHz is stopband. It is not only a zoom: bins outside the span are dropped *before* the curve reaches pyqtgraph, and the number of points drawn per frame is the real cost (81 points instead of 4096 at ±1 kHz of a ±50 kHz band). Set it to `0` for the full sampled bandwidth — which you want when hunting interferers on the PRE-LPF plot, since at ±1 kHz that plot can no longer show anything outside the passband.
+
+`spectrum_fps` refreshes the spectra independently of `plot_fps`, defaulting to 10 rather than 30. The spectra also stop entirely while another tab is on screen.
+
+**Filter control.** `lpf_cutoff_hz` (ribbon: `lpf_cutoff`) and `lpf_transition_hz` set the shared receiver low-pass. Both apply live — `fft_filter_ccc.set_taps()` is a runtime call, so no rebuild. One design is shared by both receivers and the TX reference and must stay that way: a mismatch between the RX and TX-reference filters shows up in the conjugate product as a phase error.
+
 #### `search band` — what the peak search does, and what it does not
 
 The ribbon field is labelled **search band** because it filters nothing. It is used in exactly one place — bounding an `argmax` over FFT bins:

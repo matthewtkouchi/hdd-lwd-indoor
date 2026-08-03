@@ -20,7 +20,11 @@
     "plot_fps": 30,
     "emit_interval_ms": 100,
     "num_receivers": 1,
-    "restart_settle_s": 0.5
+    "restart_settle_s": 0.5,
+    "lpf_cutoff_hz": 1000.0,
+    "lpf_transition_hz": 100.0,
+    "spectrum_span_hz": 1000.0,
+    "spectrum_fps": 10
   },
   "profiles": {
     "default": {
@@ -43,7 +47,11 @@
       "plot_fps": 30,
       "emit_interval_ms": 100,
       "num_receivers": 1,
-      "restart_settle_s": 0.5
+      "restart_settle_s": 0.5,
+      "lpf_cutoff_hz": 1000.0,
+      "lpf_transition_hz": 100.0,
+      "spectrum_span_hz": 1000.0,
+      "spectrum_fps": 10
     },
     "indoor_demo_v1": {
       "rx_addr": "169.254.9.106",
@@ -65,7 +73,11 @@
       "plot_fps": 30,
       "emit_interval_ms": 100,
       "num_receivers": 1,
-      "restart_settle_s": 0.5
+      "restart_settle_s": 0.5,
+      "lpf_cutoff_hz": 1000.0,
+      "lpf_transition_hz": 100.0,
+      "spectrum_span_hz": 1000.0,
+      "spectrum_fps": 10
     }
   }
 }

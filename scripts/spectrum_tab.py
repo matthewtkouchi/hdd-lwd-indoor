@@ -94,6 +94,10 @@ class SpectrumWidget(QWidget):
         for w in self._each():
             w.set_samp_rate(samp_rate)
 
+    def set_span_hz(self, span_hz):
+        for w in self._each():
+            w.set_span_hz(span_hz)
+
     def set_refresh_ms(self, refresh_ms):
         for w in self._each():
             w.set_refresh_ms(refresh_ms)

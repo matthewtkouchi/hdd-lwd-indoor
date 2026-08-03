@@ -32,7 +32,7 @@ class UnifiedDashboard(QWidget):
                  parent=None):
         super().__init__(parent)
         self.setStyleSheet(_STYLESHEET)
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(820, 420)
 
         # ── outer layout ──────────────────────────────────────────────────
         outer = QVBoxLayout(self)
@@ -65,7 +65,7 @@ class UnifiedDashboard(QWidget):
         v_split = _splitter(Qt.Qt.Vertical)
         v_split.addWidget(top_split)
         v_split.addWidget(self._rolling_panel)
-        v_split.setSizes([300, 520])
+        v_split.setSizes([260, 360])
 
         outer.addWidget(v_split)
 

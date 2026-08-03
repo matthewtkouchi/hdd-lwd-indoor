@@ -40,7 +40,8 @@ except Exception:                       # ui_kit optional; fall back to neutral 
 
 # Editable fields the ribbon exposes (subset of the full profile).
 RIBBON_KEYS = ["samp_rate_hz", "center_freq_hz", "fft_size",
-               "plot_fps", "band_hz", "note", "ema_alpha"]
+               "plot_fps", "band_hz", "note", "ema_alpha",
+               "lpf_cutoff_hz", "spectrum_span_hz"]
 FFT_SIZES = [1024, 2048, 4096, 8192, 16384]
 
 
@@ -92,8 +93,8 @@ class SettingsRibbon(QWidget):
                                     border:1px solid {_BORDER}; padding:2px 4px; }}
         """)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(6, 4, 6, 4)
-        outer.setSpacing(4)
+        outer.setContentsMargins(6, 2, 6, 2)
+        outer.setSpacing(2)
 
         # ── Row 1: profile management ─────────────────────────────────────
         r1 = QHBoxLayout()
@@ -107,7 +108,16 @@ class SettingsRibbon(QWidget):
         self._dirty_lbl = QLabel("")
         self._dirty_lbl.setStyleSheet(f"color:{_TEAL};")
         r1.addWidget(self._dirty_lbl)
-        r1.addStretch()
+
+        # Status shares row 1 rather than taking a row of its own — the
+        # ribbon sits above the dashboard and every row it adds is a row
+        # the plots lose.  Ignored size policy so a long message cannot
+        # widen the window (see 29a437c).
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(f"color:{_TEXT_DIM};")
+        self._status_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._status_lbl.setMinimumWidth(0)
+        r1.addWidget(self._status_lbl, 1)
         outer.addLayout(r1)
 
         # ── Rows 2-3: parameter fields + actions ──────────────────────────
@@ -161,6 +171,26 @@ class SettingsRibbon(QWidget):
         self.band_hi = QLineEdit(); self.band_hi.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
         self.band_hi.setFixedWidth(70); r3.addWidget(self.band_hi)
 
+        lpf_lbl = QLabel("lpf_cutoff:")
+        lpf_lbl.setToolTip(
+            "Receiver low-pass passband edge, in Hz. Shared by both RX\n"
+            "chains and the TX reference. Applied live -- fft_filter_ccc\n"
+            "taps are redesigned without rebuilding the flowgraph.")
+        r3.addWidget(lpf_lbl)
+        self.lpf_edit = QLineEdit()
+        self.lpf_edit.setValidator(QDoubleValidator(1.0, 1e9, 1))
+        self.lpf_edit.setFixedWidth(60); r3.addWidget(self.lpf_edit)
+
+        span_lbl = QLabel("spec_span:")
+        span_lbl.setToolTip(
+            "Spectrum tab half-span in Hz either side of centre.\n"
+            "0 = the whole sampled bandwidth. Narrowing this also cuts\n"
+            "the points drawn per frame, which is the real cost.")
+        r3.addWidget(span_lbl)
+        self.span_edit = QLineEdit()
+        self.span_edit.setValidator(QDoubleValidator(0.0, 1e9, 1))
+        self.span_edit.setFixedWidth(60); r3.addWidget(self.span_edit)
+
         r3.addWidget(QLabel("note:"))
         self.note_edit = QLineEdit(); self.note_edit.setFixedWidth(140)
         self.note_edit.setToolTip("Names the capture files.")
@@ -183,18 +213,6 @@ class SettingsRibbon(QWidget):
         self.restart_btn.clicked.connect(self._on_restart)
         r3.addWidget(self.restart_btn)
         outer.addLayout(r3)
-
-        # Status line for what APPLY actually did.  A QLabel's size hint
-        # grows with its text, and inside the main window's QScrollArea that
-        # would push the whole dashboard's minimum width out and produce a
-        # horizontal scrollbar.  Ignored policy = the label takes whatever
-        # width the layout has and never asks for more; the full message is
-        # always available in the tooltip.
-        self._status_lbl = QLabel("")
-        self._status_lbl.setStyleSheet(f"color:{_TEXT_DIM};")
-        self._status_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._status_lbl.setMinimumWidth(0)
-        outer.addWidget(self._status_lbl)
 
         # mark dirty on any edit
         for w in (self.samp_combo, self.fft_combo):
@@ -227,6 +245,8 @@ class SettingsRibbon(QWidget):
         self.band_lo.setText(str(int(band[0])))
         self.band_hi.setText(str(int(band[1])))
         self.note_edit.setText(str(d["note"]))
+        self.lpf_edit.setText(f'{float(d["lpf_cutoff_hz"]):g}')
+        self.span_edit.setText(f'{float(d["spectrum_span_hz"]):g}')
 
     def _get_fields(self):
         """Read + validate the ribbon fields. Raises ValueError on bad input."""
@@ -236,14 +256,21 @@ class SettingsRibbon(QWidget):
             alpha = float(self.alpha_edit.text())
             lo = int(self.band_lo.text())
             hi = int(self.band_hi.text())
+            lpf = float(self.lpf_edit.text())
+            span = float(self.span_edit.text())
         except (ValueError, TypeError):
-            raise ValueError("center_freq, plot_fps, ema_alpha and band must be numbers.")
+            raise ValueError("center_freq, plot_fps, ema_alpha, band, "
+                             "lpf_cutoff and spec_span must be numbers.")
         if not (0 < alpha <= 1.0):
             raise ValueError("ema_alpha must be in (0, 1].")
         if fps < 1:
             raise ValueError("plot_fps must be >= 1.")
         if lo >= hi:
             raise ValueError("band low must be less than band high.")
+        if lpf <= 0:
+            raise ValueError("lpf_cutoff must be positive.")
+        if span < 0:
+            raise ValueError("spec_span must be >= 0 (0 = full band).")
         return {
             "samp_rate_hz": int(self.samp_combo.currentData()),
             "center_freq_hz": freq,
@@ -252,6 +279,8 @@ class SettingsRibbon(QWidget):
             "ema_alpha": alpha,
             "band_hz": [lo, hi],
             "note": self.note_edit.text(),
+            "lpf_cutoff_hz": lpf,
+            "spectrum_span_hz": span,
         }
 
     def _get_fields_safe(self):
