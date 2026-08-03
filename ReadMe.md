@@ -90,15 +90,27 @@ Two fixes make it absolute:
 
 ##### Getting to dBm
 
-dBFS is referenced to the converter, not the antenna. To read absolute power you need one measured offset, which absorbs the Red Pitaya input range (the LV/HV jumper), the 50 Ω termination, and any LNA or cable loss ahead of the receiver:
+dBFS is referenced to the converter, not the antenna. To read absolute power you need one measured offset, which absorbs the Red Pitaya input range (the LV/HV jumper), the input impedance and termination, and any LNA or cable loss ahead of the receiver.
 
-1. Feed the RX input a source of known level — a signal generator at, say, −30 dBm at the centre frequency.
-2. Read the `SIG 1` value on the dashboard (with `power_cal_offset_db = 0` it is dBFS).
-3. Set `power_cal_offset_db = known_dBm − shown_dBFS` and `power_unit = "dBm"`. Both apply live from APPLY.
+You do not need a signal generator. **The TX Pitaya is a known source** — and a better reference than a generator would be, because it is the exact transmitter the measurement uses.
 
-The offset is *measured* rather than derived on purpose. A STEMlab 125-14 in LV mode has a ±1 V input, which for a full-scale sine into 50 Ω works out near +10 dBm, so an offset around +10 is the expected ballpark — but that assumes the jumper position, the termination and gr-osmosdr's full-scale convention all match, and getting any of the three wrong puts the answer out by tens of dB. One measurement settles all of it.
+**Loopback procedure** (TX output known to be −6 dBm):
 
-Two caveats for link-budget work. The readout is the *strongest bin in the search band*, so it is only the carrier's power if the marker on the SPECTRUM tab's PEAK SEARCH plot sits at 0 Hz offset. And it measures the total received signal, which underground is dominated by direct coupling — the scattered echo is 30–85 dB below it and is not separable this way.
+1. Disconnect the coil from RX IN1.
+2. Cable TX OUT1 straight into RX IN1. Add a known attenuator if you have one; a short coax at these frequencies loses well under 0.1 dB, so without one the level at the input is −6 dBm.
+3. Launch, let the reading settle, and note `SIG 1` (with `power_cal_offset_db = 0` it reads dBFS).
+4. Set `power_cal_offset_db = −6 − shown_dBFS` (minus the attenuator's dB, if you used one) and `power_unit = "dBm"`. Both apply live from APPLY.
+5. Reconnect the coil.
+
+**Sanity check.** −6 dBm into 50 Ω is 112 mV rms, 158 mV peak — about −16 dB relative to a full-scale real sine on the ±1 V LV input. Depending on whether gr-osmosdr maps a real sine of peak Vp to `|z| = Vp` or `Vp/2`, expect `SIG 1` somewhere around **−16 to −22 dBFS**, giving an offset of roughly **+10 to +20 dB**. A wildly different answer (−70 dBFS, or a positive dBFS) means the path, the termination or the jumper is not what you think it is, and the offset would just be encoding that mistake. It is also a safe level: 158 mV peak is well inside the ±1 V input range, no clipping and no risk to the input.
+
+**Two-point linearity check** (worth doing once, costs nothing extra). Repeat step 3 with a known attenuator in line. The dBFS reading should drop by exactly the attenuator's value. If a 20 dB pad moves the reading by 20 dB, the whole chain is linear and the single-offset model is valid; if it moves by 14 dB, something is compressing and one offset will not describe the receiver.
+
+**What the offset assumes.** It is only valid while the physical path stays as it was during calibration:
+
+- Calibrate through the *same* input, jumper position and termination you measure with. The STEMlab fast inputs are high-impedance, not 50 Ω, so an unterminated line reads roughly 6 dB high — harmless if calibration and measurement share it, a 6 dB error if you add a terminator afterwards.
+- TX drive must be unchanged. Nothing in the ribbon touches TX amplitude or gain (the sink's gains are fixed at construction and the baseband tone is a constant), so this holds unless the flowgraph is edited.
+- Re-run it after any front-end change: a different LNA, a different cable, a moved jumper.
 
 #### The SPECTRUM tab
 
