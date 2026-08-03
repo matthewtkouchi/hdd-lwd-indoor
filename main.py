@@ -55,7 +55,6 @@ import csv
 # ── Import Custom Modules ────────────────────────────────────────────────
 from scripts.config import AppConfig
 from scripts.streaming import RingBuffer, ReaderThread
-from scripts.synth_pipe import SynthPipeInjector
 from scripts.dashboard import UnifiedDashboard
 from scripts.settings_ribbon import SettingsRibbon
 
@@ -222,13 +221,6 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             samp_rate, analog.GR_COS_WAVE, samp_rate, 1, 0, 0
         )
 
-        # ── Synthetic pipe injector (test aid) ────────────────────────────
-        # R2' = R2 + k·T2.  k is 0 while disarmed, so the adder is an exact
-        # passthrough of the real hardware data; SynthPipeInjector sweeps k
-        # through a Gaussian pipe crossing when armed (see scripts/synth_pipe.py).
-        self.blocks_multiply_const_synth = blocks.multiply_const_cc(0)
-        self.blocks_add_synth = blocks.add_vcc(1)
-
         ##################################################
         # Ring buffers + reader threads
         ##################################################
@@ -254,24 +246,17 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # GR Signal Connections
         ##################################################
         self.connect((self.analog_sig_source_x_0_0, 0), (self.fft_filter_xxx_0_0_0, 0))
+        self.connect((self.fft_filter_xxx_0,     0), (self.blocks_file_sink_0,    0))
         self.connect((self.fft_filter_xxx_0_0,   0), (self.blocks_file_sink_0_0,  0))
         self.connect((self.fft_filter_xxx_0_0_0, 0), (self.osmosdr_sink_0_0,      0))
         self.connect((self.osmosdr_source_0,     0), (self.fft_filter_xxx_0,      0))
         self.connect((self.osmosdr_source_1,     0), (self.fft_filter_xxx_0_0,    0))
-
-        # Synth pipe injection point:  R2' = R2 + k·T2  (k=0 -> passthrough).
-        # Everything downstream of ch-1 (file sink, FFT panel, phase chain)
-        # taps R2' so an armed injection is seen everywhere consistently.
-        self.connect((self.fft_filter_xxx_0,     0), (self.blocks_add_synth,      0))
-        self.connect((self.fft_filter_xxx_0_0_0, 0), (self.blocks_multiply_const_synth, 0))
-        self.connect((self.blocks_multiply_const_synth, 0), (self.blocks_add_synth, 1))
-        self.connect((self.blocks_add_synth,     0), (self.blocks_file_sink_0,    0))
-        self.connect((self.blocks_add_synth,     0), (self.sink1,                 0))
+        self.connect((self.fft_filter_xxx_0,     0), (self.sink1,                 0))
 
         # Phase: rx · conj(tx)  — store complex product, angle is taken
         # in the dashboard (see PhasePanel / EqualizerPanel).
         # input 0 = rx, input 1 = tx-ref  (multiply_conjugate = in0 * conj(in1))
-        self.connect((self.blocks_add_synth,     0),
+        self.connect((self.fft_filter_xxx_0,     0),
                      (self.blocks_multiply_conjugate_cc_0, 0))
         self.connect((self.fft_filter_xxx_0_0_0, 0),
                      (self.blocks_multiply_conjugate_cc_0, 1))
@@ -300,12 +285,6 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.dashboard.set_center_freq(self.my_fc)
         self.dashboard.set_band(self.band)
         self.dashboard.set_record_path_provider(self._make_record_path)
-
-        # Synthetic pipe toggle (dashboard button drives the injector)
-        self.synth_pipe = SynthPipeInjector(
-            self.blocks_multiply_const_synth, self.rb_prod, cfg
-        )
-        self.dashboard.set_synth_pipe(self.synth_pipe)
 
         # Wrap the SDR dashboard and the LWD plotter in a top-level tab bar.
         self.main_tabs = Qt.QTabWidget()
