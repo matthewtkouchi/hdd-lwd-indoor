@@ -133,6 +133,75 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.flowgraph_started = threading.Event()
 
         ##################################################
+        # Ring buffers  (persist across flowgraph rebuilds)
+        ##################################################
+        # The dashboard panels keep references to these, so they must be the
+        # same objects for the life of the window; _rebuild_flowgraph()
+        # resizes them in place rather than replacing them.
+        self.fft_size = cfg.fft_size
+        self.rb_lpf_rx_meas1 = RingBuffer(size=self.fft_size,
+                                          dtype=np.complex64)
+        self.rb_multiply_conjugate_rx_txconj = RingBuffer(size=self.fft_size,
+                                                          dtype=np.complex64)
+
+        self._build_flowgraph()
+
+        ##################################################
+        # Settings ribbon (profile manager + Apply) on the MAIN window
+        ##################################################
+        self._ribbon = SettingsRibbon(SETTINGS_PATH, self.apply_settings,
+                                      self._apply_restart)
+        self.top_layout.addWidget(self._ribbon)
+
+        ##################################################
+        # Unified Dashboard (main window content)
+        ##################################################
+        self.dashboard = UnifiedDashboard(
+            rb_lpf_rx_meas1=self.rb_lpf_rx_meas1,
+            rb_multiply_conjugate_rx_txconj=self.rb_multiply_conjugate_rx_txconj,
+            fft_size=self.fft_size,
+            samp_rate=self.samp_rate,
+            ema_alpha=cfg.ema_alpha,
+            refresh_ms=cfg.plot_refresh_ms,
+            emit_ms=cfg.emit_interval_ms,
+            rolling_window_s=cfg.rolling_window_s,
+        )
+        self.dashboard.set_center_freq(self.my_fc)
+        self.dashboard.set_band(self.band)
+        self.dashboard.set_record_path_provider(self._make_record_path)
+
+        # Wrap the SDR dashboard and the LWD plotter in a top-level tab bar.
+        self.main_tabs = Qt.QTabWidget()
+        self.main_tabs.addTab(self.dashboard, "SDR DASHBOARD")
+        if LWDPlotterWidget is not None:
+            try:
+                self.lwd_plotter = LWDPlotterWidget()
+                self.main_tabs.addTab(self.lwd_plotter, "LWD PLOTTER")
+            except Exception as _lwd_tab_exc:
+                print("Could not build LWD plotter tab: " + str(_lwd_tab_exc),
+                      file=sys.stderr)
+        self.top_layout.addWidget(self.main_tabs)
+
+        self._start_readers()
+
+    # ── Flowgraph construction (re-runnable) ──────────────────────────────
+    def _build_flowgraph(self):
+        """Create and wire every GR block from the current settings.
+
+        Called once from __init__ and again by _rebuild_flowgraph() when a
+        setting changes that the running blocks cannot absorb.  The ring
+        buffers are NOT created here — the panels hold references to them.
+        """
+        cfg           = self.cfg
+        addr          = self.addr
+        addr_out1     = self.addr_out1
+        samp_rate     = self.samp_rate
+        rx_samp_rate  = self.rx_samp_rate
+        tx_samp_rate  = self.tx_samp_rate
+        my_fc         = self.my_fc
+        tx_fc         = self.tx_fc
+
+        ##################################################
         # GR Blocks
         ##################################################
         # ── Receiver chains ───────────────────────────────────────────────
@@ -174,12 +243,10 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         )
 
         ##################################################
-        # Ring buffers + reader threads
+        # Vector sinks + reader threads
         ##################################################
-        self.fft_size = cfg.fft_size
         # Sig-1 baseband (complex) for the FFT panel and amplitude bar
         self.sink_lpf_rx_meas1   = blocks.vector_sink_c()
-        self.rb_lpf_rx_meas1     = RingBuffer(size=self.fft_size, dtype=np.complex64)
         self.reader_lpf_rx_meas1 = ReaderThread(self.sink_lpf_rx_meas1,
                                                 self.rb_lpf_rx_meas1,
                                                 chunk=self.fft_size)
@@ -192,7 +259,6 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # the per-sample arg() is computed in the PhasePanel for plotting.
         self.multiply_conjugate_rx_txconj = blocks.multiply_conjugate_cc(1)
         self.sink_multiply_conjugate_rx_txconj   = blocks.vector_sink_c()
-        self.rb_multiply_conjugate_rx_txconj     = RingBuffer(size=self.fft_size, dtype=np.complex64)
         self.reader_multiply_conjugate_rx_txconj = ReaderThread(
             self.sink_multiply_conjugate_rx_txconj,
             self.rb_multiply_conjugate_rx_txconj,
@@ -219,42 +285,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.connect((self.multiply_conjugate_rx_txconj, 0),
                      (self.sink_multiply_conjugate_rx_txconj, 0))
 
-        ##################################################
-        # Settings ribbon (profile manager + Apply & Restart) on the MAIN window
-        ##################################################
-        self._ribbon = SettingsRibbon(SETTINGS_PATH, self._apply_restart)
-        self.top_layout.addWidget(self._ribbon)
-
-        ##################################################
-        # Unified Dashboard (main window content)
-        ##################################################
-        self.dashboard = UnifiedDashboard(
-            rb_lpf_rx_meas1=self.rb_lpf_rx_meas1,
-            rb_multiply_conjugate_rx_txconj=self.rb_multiply_conjugate_rx_txconj,
-            fft_size=self.fft_size,
-            samp_rate=self.samp_rate,
-            ema_alpha=cfg.ema_alpha,
-            refresh_ms=cfg.plot_refresh_ms,
-            emit_ms=cfg.emit_interval_ms,
-            rolling_window_s=cfg.rolling_window_s,
-        )
-        self.dashboard.set_center_freq(self.my_fc)
-        self.dashboard.set_band(self.band)
-        self.dashboard.set_record_path_provider(self._make_record_path)
-
-        # Wrap the SDR dashboard and the LWD plotter in a top-level tab bar.
-        self.main_tabs = Qt.QTabWidget()
-        self.main_tabs.addTab(self.dashboard, "SDR DASHBOARD")
-        if LWDPlotterWidget is not None:
-            try:
-                self.lwd_plotter = LWDPlotterWidget()
-                self.main_tabs.addTab(self.lwd_plotter, "LWD PLOTTER")
-            except Exception as _lwd_tab_exc:
-                print("Could not build LWD plotter tab: " + str(_lwd_tab_exc),
-                      file=sys.stderr)
-        self.top_layout.addWidget(self.main_tabs)
-
-        # start reader threads
+    def _start_readers(self):
         self.reader_lpf_rx_meas1.start()
         self.reader_multiply_conjugate_rx_txconj.start()
 
@@ -304,6 +335,107 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.connect((sdr, 0), (lpf, 0))
         self.connect((lpf, 0), (rec, 0))
         return {"sdr": sdr, "lpf": lpf, "rec": rec}
+
+    # ── Applying settings without restarting the app ──────────────────────
+    # Fields the running app can absorb in place: each one is either a pure
+    # display value or maps onto a runtime setter on a live GR block.
+    LIVE_KEYS = frozenset({
+        "center_freq_hz",   # set_my_fc + set_tx_fc retune the radios live
+        "note",             # only read when a recording starts
+        "band_hz",          # ROI mask inside EqualizerPanel
+        "ema_alpha",        # smoothing constant inside EqualizerPanel
+        "plot_fps",         # panel QTimer intervals
+        "emit_interval_ms", # rolling-chart / recorder cadence
+        "rolling_window_s", # rolling-chart span (applied on the next sample)
+        "restart_settle_s", # only read during teardown
+        "file_base", "remote_file_1", "remote_file_2",
+    })
+    # Everything else (samp_rate_hz, fft_size, num_receivers, the addresses)
+    # changes how the blocks themselves are constructed, so the flowgraph is
+    # torn down and rebuilt — the Qt window and the panels survive.
+
+    def apply_settings(self, profile: dict) -> str:
+        """Apply a settings profile to the running app.
+
+        Returns a short description of what was done, for the ribbon's
+        status label.  Runs on the Qt main thread, so the panel timers
+        cannot fire in the middle of a rebuild.
+        """
+        new = AppConfig.from_profile(profile)
+        old = self.cfg
+        changed = [k for k in AppConfig.profile_field_names()
+                   if getattr(new, k) != getattr(old, k)]
+        if not changed:
+            return "no changes"
+
+        needs_rebuild = [k for k in changed if k not in self.LIVE_KEYS]
+        self.cfg = new
+        self._apply_live(new)
+        if needs_rebuild:
+            self._rebuild_flowgraph()
+            return "flowgraph rebuilt: " + ", ".join(needs_rebuild)
+        return "applied live: " + ", ".join(changed)
+
+    def _apply_live(self, cfg) -> None:
+        """Push the in-place-changeable settings into the running objects."""
+        self.set_note(cfg.note)
+        self.set_band(list(cfg.band_hz))
+        if self.my_fc != cfg.center_freq_hz:
+            self.set_my_fc(cfg.center_freq_hz)   # RX radios + panel axes
+            self.set_tx_fc(cfg.center_freq_hz)   # TX radio
+        self.file_base = os.path.join(self.out_dir, cfg.file_base)
+        # Only reopen a raw-IQ sink if its path really changed: file_sink.open()
+        # restarts the file and would truncate an in-progress recording.
+        rem1 = os.path.join(self.out_dir, cfg.remote_file_1)
+        if rem1 != self.rem_file1:
+            self.set_rem_file1(rem1)
+        rem2 = os.path.join(self.out_dir, cfg.remote_file_2)
+        if rem2 != self.rem_file2:
+            self.set_rem_file2(rem2)
+        self.dashboard.set_ema_alpha(cfg.ema_alpha)
+        self.dashboard.set_refresh_ms(cfg.plot_refresh_ms)
+        self.dashboard.set_emit_ms(cfg.emit_interval_ms)
+        self.dashboard.set_rolling_window_s(cfg.rolling_window_s)
+
+    def _rebuild_flowgraph(self) -> None:
+        """Tear the flowgraph down and build it again, in place.
+
+        The Qt window, the dashboard and the ring buffers all survive; only
+        the GR blocks and the reader threads are replaced.  This is what
+        makes a sample-rate or fft_size change possible without restarting
+        the application.
+        """
+        cfg = self.cfg
+        # Refresh the derived variables the builder reads.
+        self.samp_rate = self.rx_samp_rate = self.tx_samp_rate = cfg.samp_rate_hz
+        self.my_fc     = self.tx_fc = cfg.center_freq_hz
+        self.fft_size  = cfg.fft_size
+        self.addr      = cfg.rx_addr
+        self.addr_out1 = cfg.tx_port_1
+
+        self._release_hardware()
+        # Drop the previous chain-2 blocks so num_receivers=1 really has
+        # none left over from a 2-receiver run.
+        for name in ("sdr_rx_meas2", "lpf_rx_meas2", "rec_rx_meas2"):
+            if hasattr(self, name):
+                delattr(self, name)
+
+        # Resize in place: the panels hold references to these objects.
+        self.rb_lpf_rx_meas1.resize(self.fft_size)
+        self.rb_multiply_conjugate_rx_txconj.resize(self.fft_size)
+
+        self._build_flowgraph()
+
+        # Panels cache fft_size / samp_rate for their windows and axes.
+        self.dashboard.set_fft_size(self.fft_size)
+        self.dashboard.set_samp_rate(self.samp_rate)
+        self.dashboard.set_center_freq(self.my_fc)
+
+        self.start()
+        self._start_readers()
+        # Recording follows the rebuilt sinks (they reopened at os.devnull).
+        if self.rec_button == 1:
+            self.set_rec_button(1)
 
     # ── Release the Red Pitaya sockets ────────────────────────────────────
     def _release_hardware(self, settle_s=None):

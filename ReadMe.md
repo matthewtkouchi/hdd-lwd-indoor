@@ -51,7 +51,21 @@ The ribbon is the control strip above the dashboard tabs. It has two rows: profi
 - **`note`** — a text label baked into the recording filenames (`capture_ampphase_<note>_<timestamp>.csv`).
 
 ##### Apply
-- **Apply & Restart** — writes the current field values into the working copy of `settings.json`, then re-execs the process so the new values take effect. The window briefly closes and reopens; data buffers reset and plots restart from zero. This is used for *all* changes (there are no live-update fields) — which is fine because parameters are only meant to change between tests, not mid-capture.
+- **APPLY** — writes the current field values into the working copy of `settings.json` and applies them to the *running* app. The window never closes. What happens per field:
+
+  | Field | Applied |
+  |---|---|
+  | `center_freq_hz` | live — retunes the RX and TX radios and the panel axes instantly |
+  | `note` | live — the next recording uses the new name |
+  | `band_hz` | live — ROI mask in the equalizer panel |
+  | `ema_alpha` | live — amplitude smoothing constant |
+  | `plot_fps` | live — panel refresh timers |
+  | `samp_rate_hz` | flowgraph rebuilt in place (~1 s pause) |
+  | `fft_size` | flowgraph rebuilt in place (~1 s pause) |
+
+  A rebuild stops the flowgraph, drops and recreates the GR blocks at the new settings, and starts it again — the Qt window, the dashboard and the ring buffers all survive, so only the data restarts, not the app. The status line under the fields reports which path was taken.
+
+- **RESTART APP** — the old behaviour: save and re-exec the whole process. Only needed if the radios get into a state an in-place rebuild cannot clear.
 
 ---
 
@@ -67,7 +81,7 @@ Effects of a **larger** `fft_size`:
 - **Longer time window per buffer** — `fft_size / samp_rate` seconds, so the phase panel's time axis spans more (e.g. at 100 kHz: 1024 → ~10 ms, 4096 → ~41 ms, 16384 → ~164 ms).
 - **More CPU per redraw** — the FFT cost scales roughly `N·log N`, so very large sizes at a high `plot_fps` cost the most.
 
-A **smaller** `fft_size` is the reverse: coarser resolution, shorter window, cheaper to draw. Because it changes the ring buffers and panel construction, it only takes effect on restart — which is why it's an Apply & Restart field rather than a live one.
+A **smaller** `fft_size` is the reverse: coarser resolution, shorter window, cheaper to draw. Because it resizes the ring buffers and the panels' window/axis arrays, it cannot be absorbed by the running blocks — APPLY rebuilds the flowgraph in place for it (the window stays open).
 
 ---
 

@@ -85,3 +85,29 @@ class UnifiedDashboard(QWidget):
 
     def set_record_path_provider(self, fn):
         self._rolling_panel.set_path_provider(fn)
+
+    # ── Live settings (applied without restarting the app) ────────────────
+    def set_ema_alpha(self, alpha):
+        self._eq.set_ema_alpha(alpha)
+
+    def set_refresh_ms(self, refresh_ms):
+        self._fft1.set_refresh_ms(refresh_ms)
+        self._phase_panel.set_refresh_ms(refresh_ms)
+        self._eq.set_refresh_ms(refresh_ms)
+
+    def set_emit_ms(self, emit_ms):
+        self._eq.set_emit_ms(emit_ms)
+
+    def set_fft_size(self, fft_size):
+        """Call AFTER the ring buffers have been resized."""
+        self._fft1.set_fft_size(fft_size)
+        self._phase_panel.set_fft_size(fft_size)
+        self._eq.set_fft_size(fft_size)
+
+    def set_samp_rate(self, samp_rate):
+        self._fft1.set_samp_rate(samp_rate)
+        self._phase_panel.set_samp_rate(samp_rate)
+        self._eq.set_samp_rate(samp_rate)
+
+    def set_rolling_window_s(self, window_s):
+        self._rolling_panel.set_window_s(window_s)

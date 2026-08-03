@@ -55,6 +55,21 @@ class RingBuffer:
             idx = self.index
             return np.concatenate((self.buffer[idx:], self.buffer[:idx]))
 
+    def resize(self, size):
+        """Reallocate to a new length, discarding the contents.
+
+        Used when fft_size changes at runtime.  The buffer object itself is
+        reused so the panels holding a reference to it stay valid; they
+        simply see a shorter/longer read() until they are told the new
+        size (and skip a frame or two on the length check).
+        """
+        with self.lock:
+            if size == self.size:
+                return
+            self.size   = size
+            self.buffer = np.zeros(size, dtype=self.dtype)
+            self.index  = 0
+
 
 class ReaderThread(threading.Thread):
     """Background thread: drain a GR vector sink into a RingBuffer.

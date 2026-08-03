@@ -50,6 +50,7 @@ class FFTPanel(QWidget):
         super().__init__(parent)
         self._rb        = ringbuffer
         self._fft_size  = fft_size
+        self._samp_rate = samp_rate
         self._fc        = 0.0
         self._win       = np.hanning(fft_size).astype(np.float32)
         self._win_power = float(np.sum(self._win ** 2))
@@ -73,15 +74,35 @@ class FFTPanel(QWidget):
 
         self._curve = self._pw.plot(pen=pg.mkPen(color=trace_color, width=1.2))
 
-        t = QTimer(self)
-        t.setInterval(refresh_ms)
-        t.timeout.connect(self._update)
-        t.start()
+        self._timer = QTimer(self)
+        self._timer.setInterval(refresh_ms)
+        self._timer.timeout.connect(self._update)
+        self._timer.start()
 
+    # ── Live setters (see UnifiedDashboard) ───────────────────────────────
     def set_center_freq(self, fc: float):
         self._fc = fc
         rf = self._bb_freqs + fc
         self._pw.setXRange(rf[0], rf[-1], padding=0)
+
+    def set_fft_size(self, fft_size: int):
+        self._fft_size  = fft_size
+        self._win       = np.hanning(fft_size).astype(np.float32)
+        self._win_power = float(np.sum(self._win ** 2))
+        self._rebuild_freq_axis()
+
+    def set_samp_rate(self, samp_rate: float):
+        self._samp_rate = samp_rate
+        self._rebuild_freq_axis()
+
+    def set_refresh_ms(self, refresh_ms: int):
+        self._timer.setInterval(refresh_ms)
+
+    def _rebuild_freq_axis(self):
+        self._bb_freqs = np.fft.fftshift(
+            np.fft.fftfreq(self._fft_size, 1.0 / self._samp_rate)
+        )
+        self.set_center_freq(self._fc)
 
     def _update(self):
         data = self._rb.read()
@@ -122,16 +143,31 @@ class PhasePanel(QWidget):
 
         self._curve = self._pw.plot(pen=pg.mkPen(color=trace_color, width=1.2))
 
-        # Static time axis (ms) spanning the ring buffer.
-        N = self._rb.size
-        dt_ms = 1000.0 / float(samp_rate)
+        self._rebuild_time_axis()
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(refresh_ms)
+        self._timer.timeout.connect(self._update)
+        self._timer.start()
+
+    # ── Live setters (see UnifiedDashboard) ───────────────────────────────
+    def set_samp_rate(self, samp_rate: float):
+        self._samp_rate = samp_rate
+        self._rebuild_time_axis()
+
+    def set_fft_size(self, fft_size: int):
+        # The axis length follows the ring buffer, which is resized first.
+        self._rebuild_time_axis()
+
+    def set_refresh_ms(self, refresh_ms: int):
+        self._timer.setInterval(refresh_ms)
+
+    def _rebuild_time_axis(self):
+        """Time axis (ms) spanning the ring buffer at the current rate."""
+        N     = self._rb.size
+        dt_ms = 1000.0 / float(self._samp_rate)
         self._t = np.arange(N, dtype=np.float32) * dt_ms
         self._pw.setXRange(float(self._t[0]), float(self._t[-1]), padding=0)
-
-        t = QTimer(self)
-        t.setInterval(refresh_ms)
-        t.timeout.connect(self._update)
-        t.start()
 
     def _update(self):
         data = self._rb.read()
@@ -167,6 +203,7 @@ class EqualizerPanel(QWidget):
         # complex stream: rx · conj(tx)
         self._rb_multiply_conjugate_rx_txconj = rb_multiply_conjugate_rx_txconj
         self._fft_size   = fft_size
+        self._samp_rate  = samp_rate
         self._win        = np.hanning(fft_size).astype(np.float32)
         self._win_power  = float(np.sum(self._win ** 2))
         self._bb_freqs   = np.fft.fftshift(
@@ -182,10 +219,10 @@ class EqualizerPanel(QWidget):
         self._build_ui()
 
         # ~1000/refresh_ms Hz: live bars + label refresh
-        t = QTimer(self)
-        t.setInterval(refresh_ms)
-        t.timeout.connect(self._update)
-        t.start()
+        self._timer = QTimer(self)
+        self._timer.setInterval(refresh_ms)
+        self._timer.timeout.connect(self._update)
+        self._timer.start()
 
         # ~1000/emit_ms Hz: decimated emit for the rolling plot + CSV recorder
         self._emit_timer = QTimer(self)
@@ -251,11 +288,39 @@ class EqualizerPanel(QWidget):
             btn.clicked.connect(self._copy_values)
             layout.addWidget(btn)
 
+    # ── Live setters (see UnifiedDashboard) ───────────────────────────────
     def set_center_freq(self, fc: float):
         self._fc = fc
 
     def set_band(self, band):
         self._band = band
+
+    def set_ema_alpha(self, alpha: float):
+        self._alpha = alpha
+
+    def set_refresh_ms(self, refresh_ms: int):
+        self._timer.setInterval(refresh_ms)
+
+    def set_emit_ms(self, emit_ms: int):
+        self._emit_timer.setInterval(emit_ms)
+
+    def set_fft_size(self, fft_size: int):
+        self._fft_size  = fft_size
+        self._win       = np.hanning(fft_size).astype(np.float32)
+        self._win_power = float(np.sum(self._win ** 2))
+        self._rebuild_freq_axis()
+
+    def set_samp_rate(self, samp_rate: float):
+        self._samp_rate = samp_rate
+        self._rebuild_freq_axis()
+
+    def _rebuild_freq_axis(self):
+        self._bb_freqs = np.fft.fftshift(
+            np.fft.fftfreq(self._fft_size, 1.0 / self._samp_rate)
+        )
+        # The FFT bin count and hence the peak level changed under it, so
+        # re-seed the amplitude EMA instead of dragging the old value along.
+        self._s1 = None
 
     def _emit_sample(self):
         if self._ant1_amplitude_db is None or self._ant1_phase_deg is None:
@@ -444,6 +509,11 @@ class RollingPanel(QWidget):
     def set_path_provider(self, fn):
         """fn() -> str: returns a fresh output path each time recording starts."""
         self._path_provider = fn
+
+    def set_window_s(self, window_s):
+        """Change the rolling span; takes effect as samples arrive."""
+        self.WINDOW_S = float(window_s)
+        self._pw_amp.setXRange(0.0, self.WINDOW_S, padding=0)
 
     # ── Autoscale ─────────────────────────────────────────────────────────
     @staticmethod

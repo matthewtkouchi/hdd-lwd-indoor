@@ -5,18 +5,20 @@ settings_ribbon.py
 ==================
 
 A strip that sits above the dashboard tabs and lets the user manage
-parameter *profiles* and apply them via a single "Apply & Restart".
+parameter *profiles* and apply them to the running app.
 
 Model (see config.py):
   - "working" is the live editable copy the app runs on.
   - "profiles" are named presets you Load from / Save to.
   - Editing fields changes only the working copy, never the loaded preset.
   - Save / Save As are the only actions that write a named profile.
-  - Apply & Restart writes the working copy and re-execs the process.
+  - APPLY writes the working copy and hands it to the host, which applies
+    each changed field either with a live setter or by rebuilding the
+    flowgraph in place. The window stays open either way.
+  - RESTART APP writes the working copy and re-execs the process; it is
+    only an escape hatch.
 
-The ribbon talks only to settings.json; it owns no GNU Radio state. The
-host passes an ``on_apply_restart`` callback that tears down the flowgraph
-and re-execs.
+The ribbon talks only to settings.json; it owns no GNU Radio state.
 """
 
 from PyQt5.QtWidgets import (
@@ -46,9 +48,19 @@ def _fmt_rate(hz):
 
 
 class SettingsRibbon(QWidget):
-    def __init__(self, settings_path, on_apply_restart, parent=None):
+    """Profile strip above the dashboard.
+
+    ``on_apply(profile_dict) -> str`` applies the working copy to the
+    running app and returns a short description of what it did; the host
+    decides per field whether that means a live setter or an in-place
+    flowgraph rebuild.  ``on_apply_restart`` is the escape hatch that
+    re-execs the whole process.
+    """
+
+    def __init__(self, settings_path, on_apply, on_apply_restart, parent=None):
         super().__init__(parent)
         self._path = settings_path
+        self._apply_cb = on_apply
         self._on_apply_restart = on_apply_restart
 
         data = load_settings(self._path)
@@ -136,10 +148,27 @@ class SettingsRibbon(QWidget):
         self.note_edit = QLineEdit(); self.note_edit.setFixedWidth(140); r2.addWidget(self.note_edit)
 
         r2.addStretch()
-        self.apply_btn = QPushButton("APPLY & RESTART")
+        self.apply_btn = QPushButton("APPLY")
+        self.apply_btn.setToolTip(
+            "Apply to the running app. Frequency, note, band, smoothing and\n"
+            "refresh rate take effect immediately; sample rate and FFT size\n"
+            "rebuild the flowgraph in place. The window stays open either way."
+        )
         self.apply_btn.clicked.connect(self._on_apply)
         r2.addWidget(self.apply_btn)
+        self.restart_btn = QPushButton("RESTART APP")
+        self.restart_btn.setToolTip(
+            "Save and re-exec the whole process. Only needed if the radios\n"
+            "get into a state an in-place rebuild cannot clear."
+        )
+        self.restart_btn.clicked.connect(self._on_restart)
+        r2.addWidget(self.restart_btn)
         outer.addLayout(r2)
+
+        # status line for what APPLY actually did
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(f"color:{_TEXT_DIM};")
+        outer.addWidget(self._status_lbl)
 
         # mark dirty on any edit
         for w in (self.samp_combo, self.fft_combo):
@@ -282,14 +311,43 @@ class SettingsRibbon(QWidget):
         save_settings(data, self._path)
         self._refresh_profile_combo()
 
-    def _on_apply(self):
+    def _save_working(self):
+        """Validate the fields and persist them as the working copy.
+
+        Returns the working dict, or None if a field is invalid.
+        """
         fields = self._get_fields_safe()
         if fields is None:
             QMessageBox.warning(self, "Invalid value", "Fix the highlighted fields first.")
-            return
+            return None
         self._working.update(fields)
         data = load_settings(self._path)
         data["working"] = self._working
         data["loaded_from"] = self._loaded_name
         save_settings(data, self._path)
+        return self._working
+
+    def _on_apply(self):
+        working = self._save_working()
+        if working is None:
+            return
+        self.apply_btn.setEnabled(False)
+        self._status_lbl.setText("applying...")
+        self._status_lbl.repaint()           # a rebuild blocks this thread
+        try:
+            result = self._apply_cb(dict(working))
+        except Exception as exc:
+            self._status_lbl.setText(f"apply failed: {exc}")
+            print(f"[ribbon] apply failed: {exc}", flush=True)
+            raise
+        finally:
+            self.apply_btn.setEnabled(True)
+        self._status_lbl.setText(str(result))
+        # what is on screen is now what is saved
+        self._loaded_ribbon = self._ribbon_subset(self._working)
+        self._update_dirty()
+
+    def _on_restart(self):
+        if self._save_working() is None:
+            return
         self._on_apply_restart()             # host stops flowgraph + re-execs
