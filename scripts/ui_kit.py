@@ -109,6 +109,30 @@ def _auto_toggle(color: str, dim: str) -> 'QPushButton':
     """)
     return b
 
+def configure_plot_backend(antialias: bool = False, opengl: bool = False):
+    """Set the pyqtgraph global draw options once, at startup.
+
+    Antialiasing is the single most expensive option for line plots: Qt's
+    raster painter pays for it per segment, so it scales with the number
+    of points drawn.  Off by default (pyqtgraph's own default) because the
+    spectra draw thousands of segments per frame.
+    """
+    pg.setConfigOptions(antialias=bool(antialias), useOpenGL=bool(opengl))
+
+
+def decimate_for_display(pw: pg.PlotWidget):
+    """Draw at most about one point per pixel column, peak-preserving.
+
+    'peak' mode keeps the min and max of each bin it collapses, so a
+    narrow spur is never decimated away -- it just costs one column
+    instead of hundreds of points.  With setClipToView the cost of a
+    trace stops depending on the FFT size or the span at all, and starts
+    depending only on how wide the plot is on screen.
+    """
+    pw.setDownsampling(auto=True, mode='peak')
+    pw.setClipToView(True)
+
+
 def _configure_pg_plot(pw: pg.PlotWidget, color: str):
     pw.setBackground(_BG)
     pw.getAxis('left').setTextPen(color)

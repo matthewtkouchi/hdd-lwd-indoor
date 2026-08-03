@@ -36,6 +36,7 @@ from .ui_kit import (
     _BG, _PANEL, _BORDER, _TEAL, _TEAL_DIM, _ORANGE, _ORG_DIM,
     _TEXT, _TEXT_DIM,
     _heading, _auto_toggle, _configure_pg_plot, _splitter,
+    decimate_for_display,
 )
 
 
@@ -95,7 +96,6 @@ class FFTPanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(_heading(title))
 
-        pg.setConfigOptions(antialias=True, useOpenGL=False)
         self._pw = pg.PlotWidget()
         _configure_pg_plot(self._pw, trace_color)
         self._pw.setLabel('left',   'dB', **{'color': _TEXT_DIM, 'font-size': '8pt'})
@@ -105,6 +105,7 @@ class FFTPanel(QWidget):
         # pyqtgraph's 'A' button on every panel at every launch.  X stays
         # pinned to the frequency span, which is not a matter of taste.
         self._pw.enableAutoRange(axis='y')
+        decimate_for_display(self._pw)
         self._pw.setMinimumHeight(100)
         layout.addWidget(self._pw)
 
@@ -211,7 +212,6 @@ class PhasePanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(_heading(title))
 
-        pg.setConfigOptions(antialias=True, useOpenGL=False)
         self._pw = pg.PlotWidget()
         _configure_pg_plot(self._pw, trace_color)
         self._pw.setLabel('left',   'rad', **{'color': _TEXT_DIM, 'font-size': '8pt'})
@@ -327,8 +327,7 @@ class EqualizerPanel(QWidget):
             row.addWidget(self._lbl2)
             layout.addLayout(row)
 
-            pg.setConfigOptions(antialias=True, useOpenGL=False)
-
+    
             plots_row = QHBoxLayout()
             plots_row.setSpacing(4)
 
@@ -521,12 +520,12 @@ class PeakSearchPanel(QWidget):
         self._readout.setMinimumWidth(0)
         layout.addWidget(self._readout)
 
-        pg.setConfigOptions(antialias=True, useOpenGL=False)
         self._pw = pg.PlotWidget()
         _configure_pg_plot(self._pw, trace_color)
         self._pw.setLabel('left',   'dB', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.setLabel('bottom', 'Hz', **{'color': _TEXT_DIM, 'font-size': '8pt'})
         self._pw.enableAutoRange(axis='y')       # see FFTPanel
+        decimate_for_display(self._pw)
         self._pw.setMinimumHeight(100)
         layout.addWidget(self._pw)
 
@@ -711,7 +710,6 @@ class RollingPanel(QWidget):
         hdr.addWidget(self._rec_status)
         layout.addLayout(hdr)
 
-        pg.setConfigOptions(antialias=True, useOpenGL=False)
 
         # amplitude (teal) — top, with its own AUTO toggle
         amp_row = QHBoxLayout()

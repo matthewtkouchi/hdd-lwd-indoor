@@ -24,7 +24,8 @@
     "lpf_cutoff_hz": 1000.0,
     "lpf_transition_hz": 100.0,
     "spectrum_span_hz": 1000.0,
-    "spectrum_fps": 10
+    "spectrum_fps": 10,
+    "plot_antialias": false
   },
   "profiles": {
     "default": {
@@ -51,7 +52,8 @@
       "lpf_cutoff_hz": 1000.0,
       "lpf_transition_hz": 100.0,
       "spectrum_span_hz": 1000.0,
-      "spectrum_fps": 10
+      "spectrum_fps": 10,
+      "plot_antialias": false
     },
     "indoor_demo_v1": {
       "rx_addr": "169.254.9.106",
@@ -77,7 +79,8 @@
       "lpf_cutoff_hz": 1000.0,
       "lpf_transition_hz": 100.0,
       "spectrum_span_hz": 1000.0,
-      "spectrum_fps": 10
+      "spectrum_fps": 10,
+      "plot_antialias": false
     }
   }
 }

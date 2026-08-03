@@ -48,6 +48,7 @@ import os
 from scripts.config import AppConfig
 from scripts.validate import validate_profile
 from scripts.streaming import RingBuffer, ReaderThread
+from scripts.ui_kit import configure_plot_backend
 from scripts.dashboard import UnifiedDashboard
 from scripts.spectrum_tab import SpectrumWidget
 from scripts.settings_ribbon import SettingsRibbon
@@ -135,6 +136,9 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             print(f"Qt GUI: Could not restore geometry: {str(exc)}", file=sys.stderr)
 
         self.flowgraph_started = threading.Event()
+
+        # pyqtgraph global draw options, before any plot is built.
+        configure_plot_backend(antialias=cfg.plot_antialias)
 
         ##################################################
         # Ring buffers  (persist across flowgraph rebuilds)

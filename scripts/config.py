@@ -79,6 +79,7 @@ class AppConfig:
     # cuts the number of points drawn per frame, which is the real cost.
     spectrum_span_hz: float = 1000.0
     spectrum_fps:     int   = 10            # spectra refresh slower than the dashboard
+    plot_antialias:   bool  = False         # smoother lines, markedly slower to draw
     fft_size:         int   = 4096
     ema_alpha:        float = 0.1           # amplitude smoothing (0<a<=1, lower=smoother)
     rolling_window_s: float = 60.0
