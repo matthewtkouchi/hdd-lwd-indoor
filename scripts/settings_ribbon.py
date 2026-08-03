@@ -43,7 +43,7 @@ except Exception:                       # ui_kit optional; fall back to neutral 
 # Editable fields the ribbon exposes (subset of the full profile).
 RIBBON_KEYS = ["samp_rate_hz", "center_freq_hz", "fft_size",
                "plot_fps", "band_hz", "note", "ema_alpha",
-               "lpf_cutoff_hz", "spectrum_span_hz"]
+               "lpf_cutoff_hz", "spectrum_span_hz", "power_cal_offset_db"]
 FFT_SIZES = [1024, 2048, 4096, 8192, 16384]
 
 
@@ -213,8 +213,15 @@ class SettingsRibbon(QWidget):
                "0 = the whole sampled bandwidth (use this to hunt\n"
                "interferers on the PRE-LPF plot).")
 
+        self.cal_edit = QLineEdit()
+        self.cal_edit.setValidator(QDoubleValidator(-200.0, 200.0, 2))
+        _field(r3, "power_cal(dB):", self.cal_edit, 1, 55,
+               "Added to the amplitude readout to turn dBFS into absolute\n"
+               "power. Loopback TX OUT1 into RX IN1, read SIG 1, then set\n"
+               "this to (TX dBm - reading). 0 = leave the readout in dBFS.")
+
         self.note_edit = QLineEdit()
-        _field(r3, "note:", self.note_edit, 3, 100,
+        _field(r3, "note:", self.note_edit, 2, 90,
                "Names the capture files.")
         outer.addLayout(r3)
 
@@ -223,7 +230,7 @@ class SettingsRibbon(QWidget):
             w.currentIndexChanged.connect(self._update_dirty)
         for w in (self.freq_edit, self.fps_edit, self.alpha_edit,
                   self.band_lo, self.band_hi, self.note_edit,
-                  self.lpf_edit, self.span_edit):
+                  self.lpf_edit, self.span_edit, self.cal_edit):
             w.textChanged.connect(self._update_dirty)
 
     # ── Field <-> dict helpers ────────────────────────────────────────────
@@ -251,6 +258,7 @@ class SettingsRibbon(QWidget):
         self.band_hi.setText(str(int(band[1])))
         self.note_edit.setText(str(d["note"]))
         self.lpf_edit.setText(f'{float(d["lpf_cutoff_hz"]):g}')
+        self.cal_edit.setText(f'{float(d["power_cal_offset_db"]):g}')
         self.span_edit.setText(f'{float(d["spectrum_span_hz"]):g}')
 
     def _get_fields(self):
@@ -263,6 +271,7 @@ class SettingsRibbon(QWidget):
             hi = int(self.band_hi.text())
             lpf = float(self.lpf_edit.text())
             span = float(self.span_edit.text())
+            cal = float(self.cal_edit.text())
         except (ValueError, TypeError):
             raise ValueError("center_freq, plot_fps, ema_alpha, band, "
                              "lpf_cutoff and spec_span must be numbers.")
@@ -286,6 +295,7 @@ class SettingsRibbon(QWidget):
             "note": self.note_edit.text(),
             "lpf_cutoff_hz": lpf,
             "spectrum_span_hz": span,
+            "power_cal_offset_db": cal,
         }
 
     def _get_fields_safe(self):
