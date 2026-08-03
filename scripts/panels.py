@@ -39,6 +39,34 @@ from .ui_kit import (
 )
 
 
+def roi_peak(rf, mag, fc, band):
+    """Index and level of the strongest FFT bin inside the search band.
+
+    ``rf`` is the RF-labelled frequency axis, ``mag`` the matching
+    magnitudes in dB, ``band`` the [low, high] offsets from ``fc``.
+    Returns ``(index, amp_db)``, or ``(None, None)`` when the band selects
+    no bins at all.
+
+    This is THE peak search: EqualizerPanel measures with it and
+    PeakSearchPanel draws it, so the marker always shows the bin the
+    amplitude readout is actually reporting.
+
+    Note what this does and does not promise: it returns the strongest
+    bin in the band, which is not necessarily the carrier at fc.  If
+    anything inside the band is stronger, the amplitude readout follows
+    that instead -- which is exactly why the peak's position is worth
+    plotting.
+    """
+    lo = fc + band[0]
+    hi = fc + band[1]
+    mask = (rf >= lo) & (rf <= hi)
+    if not np.any(mask):
+        return None, None
+    peak_in_mask = int(np.argmax(mag[mask]))
+    full_idx = int(np.where(mask)[0][peak_in_mask])
+    return full_idx, float(mag[full_idx])
+
+
 class FFTPanel(QWidget):
     """Single-channel live spectrum (pyqtgraph).
 
@@ -217,6 +245,8 @@ class EqualizerPanel(QWidget):
         self._s1         = 1           # smoothed amplitude (dB)
         self._ant1_amplitude_db = None    # peak amplitude (dB), antenna 1
         self._ant1_phase_deg    = None    # phase diff (deg), magnitude-weighted
+        self._peak_rf_hz        = None    # where the ROI peak was found (RF Hz)
+        self._peak_offset_hz    = None    # ... relative to the centre frequency
 
         self._build_ui()
 
@@ -343,14 +373,12 @@ class EqualizerPanel(QWidget):
         fv   = np.fft.fftshift(np.fft.fft(dw))
         mag  = 20.0 * np.log10(np.abs(fv) / np.sqrt(self._win_power) + 1e-12)
         rf   = self._bb_freqs + self._fc
-        lo   = self._fc + self._band[0]
-        hi   = self._fc + self._band[1]
-        mask = (rf >= lo) & (rf <= hi)
-        if not np.any(mask):
+        full_idx, amp_db = roi_peak(rf, mag, self._fc, self._band)
+        if full_idx is None:
             return
-        peak_idx = int(np.argmax(mag[mask]))
-        full_idx = np.where(mask)[0][peak_idx]
-        amp_db   = float(mag[full_idx])
+        # Where the peak actually is -- not assumed to be the carrier.
+        self._peak_rf_hz     = float(rf[full_idx])
+        self._peak_offset_hz = float(rf[full_idx] - self._fc)
 
         # ── phase difference: angle of the complex mean of rx · conj(tx) ──
         # Magnitude-weighted circular mean — robust against ±π wrap and
@@ -404,6 +432,123 @@ class EqualizerPanel(QWidget):
                     f'{self._ant1_phase_deg:.4f}')
         Qt.QApplication.clipboard().setText(text)
         print(f'[copy] {text}', flush=True)
+
+
+
+class PeakSearchPanel(QWidget):
+    """Post-LPF spectrum with the search band shaded and the peak marked.
+
+    Answers "which bin is the amplitude readout actually reporting?".  The
+    shaded region is ``band_hz`` from the ribbon (the *search* band -- it
+    filters nothing, it only bounds the argmax) and the marker sits on the
+    bin ``roi_peak`` selected, which is not necessarily the carrier at fc.
+    If the marker wanders off centre, the amplitude bar has locked onto
+    something other than the carrier.
+    """
+
+    def __init__(self, title, ringbuffer, fft_size=4096, samp_rate=100_000,
+                 trace_color=_TEAL, refresh_ms=20, parent=None):
+        super().__init__(parent)
+        self._rb        = ringbuffer
+        self._fft_size  = fft_size
+        self._samp_rate = samp_rate
+        self._fc        = 0.0
+        self._band      = [-30_000, 30_000]
+        self._win       = np.hanning(fft_size).astype(np.float32)
+        self._win_power = float(np.sum(self._win ** 2))
+        self._bb_freqs  = np.fft.fftshift(
+            np.fft.fftfreq(fft_size, 1.0 / samp_rate))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(2)
+        layout.addWidget(_heading(title))
+
+        self._readout = QLabel('peak:  ---')
+        self._readout.setObjectName('value_teal')
+        self._readout.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._readout.setMinimumWidth(0)
+        layout.addWidget(self._readout)
+
+        pg.setConfigOptions(antialias=True, useOpenGL=False)
+        self._pw = pg.PlotWidget()
+        _configure_pg_plot(self._pw, trace_color)
+        self._pw.setLabel('left',   'dB', **{'color': _TEXT_DIM, 'font-size': '8pt'})
+        self._pw.setLabel('bottom', 'Hz', **{'color': _TEXT_DIM, 'font-size': '8pt'})
+        self._pw.setYRange(-80, 20, padding=0)
+        self._pw.setMinimumHeight(140)
+        layout.addWidget(self._pw)
+
+        # Shaded search band. Not movable: it mirrors the ribbon field.
+        self._region = pg.LinearRegionItem(values=(0, 0), movable=False,
+                                           brush=pg.mkBrush(0, 255, 204, 28))
+        self._region.setZValue(-10)
+        self._pw.addItem(self._region)
+
+        self._curve  = self._pw.plot(pen=pg.mkPen(color=trace_color, width=1.2))
+        self._marker = pg.ScatterPlotItem(size=11, symbol='o',
+                                          pen=pg.mkPen(_ORANGE, width=2),
+                                          brush=pg.mkBrush(0, 0, 0, 0))
+        self._pw.addItem(self._marker)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(refresh_ms)
+        self._timer.timeout.connect(self._update)
+        self._timer.start()
+
+    # ── Live setters ──────────────────────────────────────────────────────
+    def set_center_freq(self, fc: float):
+        self._fc = fc
+        self._refresh_ranges()
+
+    def set_band(self, band):
+        self._band = list(band)
+        self._refresh_ranges()
+
+    def set_fft_size(self, fft_size: int):
+        self._fft_size  = fft_size
+        self._win       = np.hanning(fft_size).astype(np.float32)
+        self._win_power = float(np.sum(self._win ** 2))
+        self._rebuild_freq_axis()
+
+    def set_samp_rate(self, samp_rate: float):
+        self._samp_rate = samp_rate
+        self._rebuild_freq_axis()
+
+    def set_refresh_ms(self, refresh_ms: int):
+        self._timer.setInterval(refresh_ms)
+
+    def _rebuild_freq_axis(self):
+        self._bb_freqs = np.fft.fftshift(
+            np.fft.fftfreq(self._fft_size, 1.0 / self._samp_rate))
+        self._refresh_ranges()
+
+    def _refresh_ranges(self):
+        rf = self._bb_freqs + self._fc
+        self._pw.setXRange(rf[0], rf[-1], padding=0)
+        self._region.setRegion((self._fc + self._band[0],
+                                self._fc + self._band[1]))
+
+    def _update(self):
+        data = self._rb.read()
+        if len(data) != self._fft_size:
+            return
+        fft_out = np.fft.fftshift(np.fft.fft(data * self._win))
+        mag = 20.0 * np.log10(
+            np.abs(fft_out) / np.sqrt(self._win_power) + 1e-12)
+        rf = self._bb_freqs + self._fc
+        self._curve.setData(rf, mag)
+
+        idx, amp_db = roi_peak(rf, mag, self._fc, self._band)
+        if idx is None:
+            self._marker.setData([], [])
+            self._readout.setText('peak:  search band selects no bins')
+            return
+        self._marker.setData([rf[idx]], [mag[idx]])
+        off = rf[idx] - self._fc
+        self._readout.setText(
+            f'peak:  {amp_db:+.2f} dB   at {rf[idx]:,.0f} Hz '
+            f'({off:+,.0f} Hz from centre)')
 
 
 class RollingPanel(QWidget):

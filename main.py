@@ -15,8 +15,10 @@
 #   settings_ribbon.py - profile manager strip (Load/Save/Apply & Restart)
 #   ui_kit.py          - palette, stylesheet, widget helpers
 #   streaming.py       - RingBuffer + ReaderThread
-#   panels.py          - FFTPanel / PhasePanel / EqualizerPanel / RollingPanel
-#   dashboard.py       - UnifiedDashboard
+#   panels.py          - FFTPanel / PhasePanel / EqualizerPanel /
+#                        PeakSearchPanel / RollingPanel
+#   dashboard.py       - UnifiedDashboard  ("SDR DASHBOARD" tab)
+#   spectrum_tab.py    - SpectrumWidget    ("SPECTRUM" tab)
 #   this file          - trx_ssb GNU Radio top block + main()
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,7 @@ from scripts.config import AppConfig
 from scripts.validate import validate_profile
 from scripts.streaming import RingBuffer, ReaderThread
 from scripts.dashboard import UnifiedDashboard
+from scripts.spectrum_tab import SpectrumWidget
 from scripts.settings_ribbon import SettingsRibbon
 
 # ── Embedded LWD plotter tab (PyQt5 port of lwd_plotter.py) ───────────────────
@@ -140,6 +143,11 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # same objects for the life of the window; _rebuild_flowgraph()
         # resizes them in place rather than replacing them.
         self.fft_size = cfg.fft_size
+        # Raw radio output, before lpf_rx_meas1 — the only view that shows
+        # the real noise floor and any interferers (the LPF puts everything
+        # beyond ±1 kHz of centre 60+ dB down).
+        self.rb_sdr_rx_meas1 = RingBuffer(size=self.fft_size,
+                                          dtype=np.complex64)
         self.rb_lpf_rx_meas1 = RingBuffer(size=self.fft_size,
                                           dtype=np.complex64)
         self.rb_multiply_conjugate_rx_txconj = RingBuffer(size=self.fft_size,
@@ -171,9 +179,21 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.dashboard.set_band(self.band)
         self.dashboard.set_record_path_provider(self._make_record_path)
 
+        # Frequency-domain views, in their own tab.
+        self.spectrum = SpectrumWidget(
+            rb_sdr_rx_meas1=self.rb_sdr_rx_meas1,
+            rb_lpf_rx_meas1=self.rb_lpf_rx_meas1,
+            fft_size=self.fft_size,
+            samp_rate=self.samp_rate,
+            refresh_ms=cfg.plot_refresh_ms,
+        )
+        self.spectrum.set_center_freq(self.my_fc)
+        self.spectrum.set_band(self.band)
+
         # Wrap the SDR dashboard and the LWD plotter in a top-level tab bar.
         self.main_tabs = Qt.QTabWidget()
         self.main_tabs.addTab(self.dashboard, "SDR DASHBOARD")
+        self.main_tabs.addTab(self.spectrum,  "SPECTRUM")
         if LWDPlotterWidget is not None:
             try:
                 self.lwd_plotter = LWDPlotterWidget()
@@ -246,7 +266,15 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         ##################################################
         # Vector sinks + reader threads
         ##################################################
-        # Sig-1 baseband (complex) for the FFT panel and amplitude bar
+        # Pre-LPF tap for the SPECTRUM tab: straight off the radio, so the
+        # spectrum shows what the antenna delivers rather than the filter's
+        # stopband.  Measurement path is untouched.
+        self.sink_sdr_rx_meas1   = blocks.vector_sink_c()
+        self.reader_sdr_rx_meas1 = ReaderThread(self.sink_sdr_rx_meas1,
+                                                self.rb_sdr_rx_meas1,
+                                                chunk=self.fft_size)
+
+        # Sig-1 baseband (complex) for the spectrum + amplitude bar
         self.sink_lpf_rx_meas1   = blocks.vector_sink_c()
         self.reader_lpf_rx_meas1 = ReaderThread(self.sink_lpf_rx_meas1,
                                                 self.rb_lpf_rx_meas1,
@@ -274,6 +302,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.connect((self.siggen_tx_tone,  0), (self.lpf_tx_ref,          0))
         self.connect((self.lpf_tx_ref,      0), (self.sdr_tx,              0))
         self.connect((self.lpf_rx_meas1,    0), (self.sink_lpf_rx_meas1,   0))
+        self.connect((self.sdr_rx_meas1,    0), (self.sink_sdr_rx_meas1,   0))
 
         # Phase: rx · conj(tx)  — store complex product, angle is taken
         # in the dashboard (see PhasePanel / EqualizerPanel).
@@ -287,6 +316,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
                      (self.sink_multiply_conjugate_rx_txconj, 0))
 
     def _start_readers(self):
+        self.reader_sdr_rx_meas1.start()
         self.reader_lpf_rx_meas1.start()
         self.reader_multiply_conjugate_rx_txconj.start()
 
@@ -411,6 +441,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             self.dashboard.set_ema_alpha(cfg.ema_alpha)
         if "plot_fps" in changed:
             self.dashboard.set_refresh_ms(cfg.plot_refresh_ms)
+            self.spectrum.set_refresh_ms(cfg.plot_refresh_ms)
         if "emit_interval_ms" in changed:
             self.dashboard.set_emit_ms(cfg.emit_interval_ms)
         if "rolling_window_s" in changed:
@@ -440,6 +471,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
                 delattr(self, name)
 
         # Resize in place: the panels hold references to these objects.
+        self.rb_sdr_rx_meas1.resize(self.fft_size)
         self.rb_lpf_rx_meas1.resize(self.fft_size)
         self.rb_multiply_conjugate_rx_txconj.resize(self.fft_size)
 
@@ -449,6 +481,10 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.dashboard.set_fft_size(self.fft_size)
         self.dashboard.set_samp_rate(self.samp_rate)
         self.dashboard.set_center_freq(self.my_fc)
+        self.spectrum.set_fft_size(self.fft_size)
+        self.spectrum.set_samp_rate(self.samp_rate)
+        self.spectrum.set_center_freq(self.my_fc)
+        self.spectrum.set_band(self.band)
 
         self.start()
         self._start_readers()
@@ -474,7 +510,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         """
         if settle_s is None:
             settle_s = self.cfg.restart_settle_s
-        for name in ("reader_lpf_rx_meas1", "reader_multiply_conjugate_rx_txconj"):
+        for name in ("reader_sdr_rx_meas1", "reader_lpf_rx_meas1",
+                     "reader_multiply_conjugate_rx_txconj"):
             reader = getattr(self, name, None)
             if reader is not None:
                 try:
@@ -602,10 +639,12 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         if getattr(self, 'sdr_rx_meas2', None) is not None:
             self.sdr_rx_meas2.set_center_freq(self.my_fc, 0)
         self.dashboard.set_center_freq(self.my_fc)
+        self.spectrum.set_center_freq(self.my_fc)
 
     def set_band(self, band):
         self.band = band
         self.dashboard.set_band(self.band)
+        self.spectrum.set_band(self.band)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

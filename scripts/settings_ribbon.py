@@ -138,7 +138,7 @@ class SettingsRibbon(QWidget):
         av = QDoubleValidator(0.0001, 1.0, 4); self.alpha_edit.setValidator(av)
         self.alpha_edit.setFixedWidth(55); r2.addWidget(self.alpha_edit)
 
-        r2.addWidget(QLabel("band (Hz):"))
+        r2.addWidget(QLabel("search band (Hz):"))
         self.band_lo = QLineEdit(); self.band_lo.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
         self.band_lo.setFixedWidth(70); r2.addWidget(self.band_lo)
         r2.addWidget(QLabel("..."))

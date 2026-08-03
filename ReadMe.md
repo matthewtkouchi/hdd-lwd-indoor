@@ -69,6 +69,33 @@ The ribbon is the control strip above the dashboard tabs. It has two rows: profi
 
 ---
 
+#### The SPECTRUM tab
+
+The frequency-domain views live in their own tab, next to SDR DASHBOARD and LWD PLOTTER. Three plots, all of receiver 1, tapped at three points:
+
+| Plot | Tapped at | What it tells you |
+|---|---|---|
+| **PRE-LPF** | `sdr_rx_meas1` output, before any filtering | What the antenna actually delivers: the real noise floor, interferers, supply spurs. Use this when changing the physical setup. |
+| **POST-LPF** | `lpf_rx_meas1` output | The same signal after the 1 kHz low-pass — what the measurement actually consumes. Comparing the two shows what the filter is doing. |
+| **PEAK SEARCH** | `lpf_rx_meas1` output | The post-LPF spectrum with the search band shaded and a marker on the bin the amplitude readout is reporting, plus its offset from centre. |
+
+The pre-LPF tap is a new vector sink straight off the radio; the measurement path is untouched by it.
+
+#### `search band` — what the peak search does, and what it does not
+
+The ribbon field is labelled **search band** because it filters nothing. It is used in exactly one place — bounding an `argmax` over FFT bins:
+
+```python
+mask = (rf >= fc + band[0]) & (rf <= fc + band[1])
+peak = np.argmax(mag[mask])
+```
+
+So it answers "where should I look for the strongest bin?", and the answer is **the strongest bin in the band, which is not necessarily the carrier at the centre frequency**. If anything inside the band is stronger — an interferer, a spur — the amplitude readout silently follows that instead, and before the PEAK SEARCH plot existed there was no way to tell: the peak's *position* was computed and then discarded, only its level was kept.
+
+In practice the 1 kHz LPF protects you today, since everything beyond ±1 kHz is 60+ dB down before the search ever runs. The marker exists so that stays a fact you can check rather than an assumption. If the marker sits at 0 Hz offset, the readout is measuring the carrier; if it wanders, it is not.
+
+Narrowing the search band to roughly the LPF passband (say ±1 kHz) makes it structurally impossible for a distant interferer to capture the readout. `roi_peak()` in `panels.py` is the single implementation, used by both the equalizer that measures and the panel that draws it, so the marker can never disagree with the number.
+
 #### Input safety checks (`scripts/validate.py`)
 
 Every profile goes through `validate_profile()` before it reaches the radios — from the ribbon's APPLY and again inside `apply_settings()`. It splits problems into two kinds:
