@@ -23,12 +23,6 @@
 # ── Import PyQT5 Modules ────────────────────────────────────────────────
 from PyQt5 import Qt
 from gnuradio import qtgui
-from PyQt5 import QtCore
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-    QPushButton, QSplitter, QSizePolicy,
-)
 
 # ── Import GNU Modules ────────────────────────────────────────────────
 from gnuradio import analog
@@ -42,16 +36,11 @@ from gnuradio.fft import window
 import sys
 import signal
 import gc
-from argparse import ArgumentParser
-from gnuradio.eng_arg import eng_float, intx
 import osmosdr
 import time
 import threading
 import numpy as np
 import os
-import pyqtgraph as pg
-from typing import Callable, Tuple, List, Optional
-import csv
 
 # ── Import Custom Modules ────────────────────────────────────────────────
 from scripts.config import AppConfig
@@ -99,7 +88,6 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         os.makedirs(out_dir, exist_ok=True)
         self.out_dir     = out_dir
         self.file_base   = file_base   = os.path.join(out_dir, cfg.file_base)
-        self.tx_sdr_addr = tx_sdr_addr = cfg.tx_addr
         self.tx_fc       = tx_fc       = cfg.center_freq_hz
         self.tx_samp_rate= tx_samp_rate= cfg.samp_rate_hz
         self.samp_rate   = samp_rate   = cfg.samp_rate_hz
@@ -110,9 +98,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.my_fc       = my_fc       = cfg.center_freq_hz
         self.loc_file    = loc_file    = file_base + "_local_" + file_id
         self.band        = band        = list(cfg.band_hz)
-        self.addr_out2   = addr_out2   = cfg.tx_port_2
         self.addr_out1   = addr_out1   = cfg.tx_port_1
-        self.addr_0      = addr_0      = cfg.rx_addr
         self.addr        = addr        = cfg.rx_addr
 
         gr.top_block.__init__(self, "Trx Ssb", catch_exceptions=True)
@@ -385,36 +371,27 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         )
         return f'{self.file_base}_ampphase_{safe_note}_{ts}.csv'
 
-    # ── Getters / Setters ─────────────────────────────────────────────────
-    def get_note(self):
-        return self.note
+    # ── Live setters ──────────────────────────────────────────────────────
+    # These reconfigure running GR blocks, so they take effect without a
+    # restart.  Nothing calls them yet — the settings ribbon still goes
+    # through Apply & Restart — but they are the hooks a live-update
+    # control would use.  The trivial GRC getters were removed; read the
+    # attributes directly (tb.my_fc, tb.band, ...).
 
     def set_note(self, note):
         self.note = note
         self.set_file_id(self.note + ".bin")
 
-    def get_file_id(self):
-        return self.file_id
-
     def set_file_id(self, file_id):
         self.file_id = file_id
         self.set_loc_file(self.file_base + "_local_" + self.file_id)
-
-    def get_file_base(self):
-        return self.file_base
 
     def set_file_base(self, file_base):
         self.file_base = file_base
         self.set_loc_file(self.file_base + "_local_" + self.file_id)
 
-    def get_tx_sdr_addr(self):
-        return self.tx_sdr_addr
-
-    def set_tx_sdr_addr(self, tx_sdr_addr):
-        self.tx_sdr_addr = tx_sdr_addr
-
-    def get_tx_samp_rate(self):
-        return self.tx_samp_rate
+    def set_loc_file(self, loc_file):
+        self.loc_file = loc_file
 
     def set_tx_samp_rate(self, tx_samp_rate):
         self.tx_samp_rate = tx_samp_rate
@@ -424,24 +401,15 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         if getattr(self, 'sdr_rx_meas2', None) is not None:
             self.sdr_rx_meas2.set_bandwidth(self.tx_samp_rate, 0)
 
-    def get_tx_fc(self):
-        return self.tx_fc
-
     def set_tx_fc(self, tx_fc):
         self.tx_fc = tx_fc
         self.sdr_tx.set_center_freq(self.tx_fc, 0)
-
-    def get_samp_rate(self):
-        return self.samp_rate
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
         self.siggen_tx_tone.set_sampling_freq(self.samp_rate)
         if getattr(self, 'sdr_rx_meas2', None) is not None:
             self.sdr_rx_meas2.set_sample_rate(self.samp_rate)
-
-    def get_rx_samp_rate(self):
-        return self.rx_samp_rate
 
     def set_rx_samp_rate(self, rx_samp_rate):
         self.rx_samp_rate = rx_samp_rate
@@ -454,8 +422,11 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.lpf_tx_ref.set_taps(self.rx_lpf_taps)
         self.sdr_rx_meas1.set_sample_rate(self.rx_samp_rate)
 
-    def get_rem_file2(self):
-        return self.rem_file2
+    def set_rem_file1(self, rem_file1):
+        self.rem_file1 = rem_file1
+        self.rec_rx_meas1.open(
+            self.rem_file1 if self.rec_button == 1 else os.devnull
+        )
 
     def set_rem_file2(self, rem_file2):
         self.rem_file2 = rem_file2
@@ -463,18 +434,6 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             self.rec_rx_meas2.open(
                 self.rem_file2 if self.rec_button == 1 else os.devnull
             )
-
-    def get_rem_file1(self):
-        return self.rem_file1
-
-    def set_rem_file1(self, rem_file1):
-        self.rem_file1 = rem_file1
-        self.rec_rx_meas1.open(
-            self.rem_file1 if self.rec_button == 1 else os.devnull
-        )
-
-    def get_rec_button(self):
-        return self.rec_button
 
     def set_rec_button(self, rec_button):
         self.rec_button = rec_button
@@ -486,9 +445,6 @@ class trx_ssb(gr.top_block, Qt.QWidget):
                 self.rem_file2 if self.rec_button == 1 else os.devnull
             )
 
-    def get_my_fc(self):
-        return self.my_fc
-
     def set_my_fc(self, my_fc):
         self.my_fc = my_fc
         self.sdr_rx_meas1.set_center_freq(self.my_fc, 0)
@@ -496,42 +452,9 @@ class trx_ssb(gr.top_block, Qt.QWidget):
             self.sdr_rx_meas2.set_center_freq(self.my_fc, 0)
         self.dashboard.set_center_freq(self.my_fc)
 
-    def get_loc_file(self):
-        return self.loc_file
-
-    def set_loc_file(self, loc_file):
-        self.loc_file = loc_file
-
-    def get_band(self):
-        return self.band
-
     def set_band(self, band):
         self.band = band
         self.dashboard.set_band(self.band)
-
-    def get_addr_out2(self):
-        return self.addr_out2
-
-    def set_addr_out2(self, addr_out2):
-        self.addr_out2 = addr_out2
-
-    def get_addr_out1(self):
-        return self.addr_out1
-
-    def set_addr_out1(self, addr_out1):
-        self.addr_out1 = addr_out1
-
-    def get_addr_0(self):
-        return self.addr_0
-
-    def set_addr_0(self, addr_0):
-        self.addr_0 = addr_0
-
-    def get_addr(self):
-        return self.addr
-
-    def set_addr(self, addr):
-        self.addr = addr
 
 
 # ══════════════════════════════════════════════════════════════════════════════

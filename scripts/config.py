@@ -80,12 +80,10 @@ class AppConfig:
 
     # ── Derived (computed; not stored as profile values) ──────────────────
     tx_port_1: str = field(init=False)
-    tx_port_2: str = field(init=False)
     plot_refresh_ms: int = field(init=False)
 
     def __post_init__(self) -> None:
         self.tx_port_1 = f"{self.tx_addr}:1001"
-        self.tx_port_2 = f"{self.tx_addr}:1002"
         self.plot_refresh_ms = max(1, round(1000 / self.plot_fps))
         if self.num_receivers not in (1, 2):
             raise ValueError(

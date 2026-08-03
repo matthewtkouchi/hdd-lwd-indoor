@@ -71,9 +71,13 @@ A **smaller** `fft_size` is the reverse: coarser resolution, shorter window, che
 
 ---
 
-#### Running without hardware (`dummy_mode`)
+#### Running without hardware
 
-Set `"dummy_mode": true` in the `working` block of `settings.json` (or in a profile, then Load it) and launch. The Red Pitaya source/sink blocks are replaced with synthetic tone+noise sources and a null sink, so the entire GUI — dashboard, ribbon, profiles, CSV recorder — runs on fake data with no SDR connected. Set it back to `false` for real hardware.
+Not supported in this snapshot. An earlier version of this document
+described a `dummy_mode` flag that replaced the Red Pitaya blocks with
+synthetic sources; no such flag exists in the code. The app requires the
+RX and TX Pitayas to be reachable.
+
 ---
 
 #### Block rename table (old GRC names → current names)

@@ -10,7 +10,7 @@ single "SDR DASHBOARD" widget
 """
 
 from PyQt5 import Qt
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout
 
 from .ui_kit import _STYLESHEET, _TEAL, _ORANGE, _splitter
 from .panels import FFTPanel, PhasePanel, EqualizerPanel, RollingPanel
@@ -34,16 +34,10 @@ class UnifiedDashboard(QWidget):
         self.setStyleSheet(_STYLESHEET)
         self.setMinimumSize(900, 600)
 
-        # ── outer layout: toggle button on top, content below ─────────────
+        # ── outer layout ──────────────────────────────────────────────────
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-
-        self._gr_toggle_btn = QPushButton('⚙  GR CONTROLS')
-        self._gr_toggle_btn.setFixedHeight(24)
-        self._gr_toggle_btn.clicked.connect(self._toggle_gr_window)
-        self._gr_win_ref = None
-        outer.addWidget(self._gr_toggle_btn)
 
         # ── top row: FFT(sig 1) + Phase(sig 1) + equalizer side by side ──
         top_split = _splitter(Qt.Qt.Horizontal)
@@ -91,15 +85,3 @@ class UnifiedDashboard(QWidget):
 
     def set_record_path_provider(self, fn):
         self._rolling_panel.set_path_provider(fn)
-
-    def set_gr_window(self, win):
-        self._gr_win_ref = win
-
-    def _toggle_gr_window(self):
-        if self._gr_win_ref is None:
-            return
-        if self._gr_win_ref.isVisible():
-            self._gr_win_ref.hide()
-        else:
-            self._gr_win_ref.show()
-            self._gr_win_ref.raise_()
