@@ -100,10 +100,10 @@ class PhasePanel(QWidget):
     multiply_conjugate_cc and plots its angle over the buffer's time span.
     """
 
-    def __init__(self, title, ringbuffer_prod, samp_rate=100_000,
+    def __init__(self, title, rb_multiply_conjugate_rx_txconj, samp_rate=100_000,
                  trace_color=_ORANGE, refresh_ms=20, parent=None):
         super().__init__(parent)
-        self._rb         = ringbuffer_prod
+        self._rb         = rb_multiply_conjugate_rx_txconj
         self._samp_rate  = samp_rate
 
         layout = QVBoxLayout(self)
@@ -158,13 +158,14 @@ class EqualizerPanel(QWidget):
     # Emits (amplitude_dB, phase_deg) for the rolling plot + recorder.
     sample_ready = Qt.pyqtSignal(float, float)
 
-    def __init__(self, ringbuffer1, ringbuffer_prod,
+    def __init__(self, rb_lpf_rx_meas1, rb_multiply_conjugate_rx_txconj,
                  fft_size=4096, samp_rate=100_000,
                  ema_alpha=0.1, refresh_ms=20, emit_ms=100,
                  parent=None):
         super().__init__(parent)
-        self._rb1        = ringbuffer1
-        self._rb_prod    = ringbuffer_prod   # complex stream: rx · conj(tx)
+        self._rb_lpf_rx_meas1 = rb_lpf_rx_meas1
+        # complex stream: rx · conj(tx)
+        self._rb_multiply_conjugate_rx_txconj = rb_multiply_conjugate_rx_txconj
         self._fft_size   = fft_size
         self._win        = np.hanning(fft_size).astype(np.float32)
         self._win_power  = float(np.sum(self._win ** 2))
@@ -263,10 +264,10 @@ class EqualizerPanel(QWidget):
                                float(self._ant1_phase_deg))
 
     def _update(self):
-        d1 = self._rb1.read()
+        d1 = self._rb_lpf_rx_meas1.read()
         if len(d1) != self._fft_size:
             return
-        d_prod = self._rb_prod.read()
+        d_prod = self._rb_multiply_conjugate_rx_txconj.read()
         if len(d_prod) != self._fft_size:
             return
 

@@ -74,3 +74,40 @@ A **smaller** `fft_size` is the reverse: coarser resolution, shorter window, che
 #### Running without hardware (`dummy_mode`)
 
 Set `"dummy_mode": true` in the `working` block of `settings.json` (or in a profile, then Load it) and launch. The Red Pitaya source/sink blocks are replaced with synthetic tone+noise sources and a null sink, so the entire GUI — dashboard, ribbon, profiles, CSV recorder — runs on fake data with no SDR connected. Set it back to `false` for real hardware.
+---
+
+#### Block rename table (old GRC names → current names)
+
+`main.py` was GRC-generated once and is now hand-maintained (there is no
+`.grc` file). The GRC-generated block names were renamed to describe the
+signal each block carries. `sdr_` marks a physical radio boundary
+(osmosdr source/sink); everything else is software. Vector sinks, ring
+buffers and reader threads are named after what feeds them.
+
+Older recordings, notebooks and notes may still use the left-hand names.
+
+| Old (GRC-generated)              | Current                             |
+|----------------------------------|-------------------------------------|
+| analog_sig_source_x_0_0          | siggen_tx_tone                      |
+| osmosdr_sink_0_0                 | sdr_tx                              |
+| fft_filter_xxx_0_0_0             | lpf_tx_ref                          |
+| osmosdr_source_0                 | sdr_rx_meas1                        |
+| fft_filter_xxx_0                 | lpf_rx_meas1                        |
+| blocks_file_sink_0               | rec_rx_meas1                        |
+| osmosdr_source_1                 | sdr_rx_meas2                        |
+| fft_filter_xxx_0_0               | lpf_rx_meas2                        |
+| blocks_file_sink_0_0             | rec_rx_meas2                        |
+| blocks_multiply_conjugate_cc_0   | multiply_conjugate_rx_txconj        |
+| sink1                            | sink_lpf_rx_meas1                   |
+| sink_prod                        | sink_multiply_conjugate_rx_txconj   |
+| rb1                              | rb_lpf_rx_meas1                     |
+| reader1                          | reader_lpf_rx_meas1                 |
+| rb_prod                          | rb_multiply_conjugate_rx_txconj     |
+| reader_prod                      | reader_multiply_conjugate_rx_txconj |
+
+The dashboard/panel constructor arguments that carry these streams were
+renamed to match: `ringbuffer1` → `rb_lpf_rx_meas1`, `ringbuffer_prod` →
+`rb_multiply_conjugate_rx_txconj`.
+
+Output capture filenames (`rx1.bin`, `rx2.bin`, the amp/phase CSV) are
+unchanged.

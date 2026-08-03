@@ -148,76 +148,76 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         ##################################################
         # GR Blocks
         ##################################################
-        self.osmosdr_source_1 = osmosdr.source(
+        self.sdr_rx_meas2 = osmosdr.source(
             args="numchan=1 redpitaya=" + addr + ":1002"
         )
-        self.osmosdr_source_1.set_sample_rate(samp_rate)
-        self.osmosdr_source_1.set_center_freq(my_fc, 0)
-        self.osmosdr_source_1.set_freq_corr(0, 0)
-        self.osmosdr_source_1.set_dc_offset_mode(0, 0)
-        self.osmosdr_source_1.set_iq_balance_mode(0, 0)
-        self.osmosdr_source_1.set_gain_mode(False, 0)
-        self.osmosdr_source_1.set_gain(1, 0)
-        self.osmosdr_source_1.set_if_gain(1, 0)
-        self.osmosdr_source_1.set_bb_gain(1, 0)
-        self.osmosdr_source_1.set_antenna('', 0)
-        self.osmosdr_source_1.set_bandwidth(tx_samp_rate, 0)
+        self.sdr_rx_meas2.set_sample_rate(samp_rate)
+        self.sdr_rx_meas2.set_center_freq(my_fc, 0)
+        self.sdr_rx_meas2.set_freq_corr(0, 0)
+        self.sdr_rx_meas2.set_dc_offset_mode(0, 0)
+        self.sdr_rx_meas2.set_iq_balance_mode(0, 0)
+        self.sdr_rx_meas2.set_gain_mode(False, 0)
+        self.sdr_rx_meas2.set_gain(1, 0)
+        self.sdr_rx_meas2.set_if_gain(1, 0)
+        self.sdr_rx_meas2.set_bb_gain(1, 0)
+        self.sdr_rx_meas2.set_antenna('', 0)
+        self.sdr_rx_meas2.set_bandwidth(tx_samp_rate, 0)
 
-        self.osmosdr_source_0 = osmosdr.source(
+        self.sdr_rx_meas1 = osmosdr.source(
             args="numchan=1 redpitaya=" + addr + ":1001"
         )
-        self.osmosdr_source_0.set_sample_rate(rx_samp_rate)
-        self.osmosdr_source_0.set_center_freq(my_fc, 0)
-        self.osmosdr_source_0.set_freq_corr(0, 0)
-        self.osmosdr_source_0.set_dc_offset_mode(0, 0)
-        self.osmosdr_source_0.set_iq_balance_mode(0, 0)
-        self.osmosdr_source_0.set_gain_mode(False, 0)
-        self.osmosdr_source_0.set_gain(1, 0)
-        self.osmosdr_source_0.set_if_gain(1, 0)
-        self.osmosdr_source_0.set_bb_gain(1, 0)
-        self.osmosdr_source_0.set_antenna('', 0)
-        self.osmosdr_source_0.set_bandwidth(tx_samp_rate, 0)
-        self.osmosdr_source_0.set_block_alias("16b Pitaya")
+        self.sdr_rx_meas1.set_sample_rate(rx_samp_rate)
+        self.sdr_rx_meas1.set_center_freq(my_fc, 0)
+        self.sdr_rx_meas1.set_freq_corr(0, 0)
+        self.sdr_rx_meas1.set_dc_offset_mode(0, 0)
+        self.sdr_rx_meas1.set_iq_balance_mode(0, 0)
+        self.sdr_rx_meas1.set_gain_mode(False, 0)
+        self.sdr_rx_meas1.set_gain(1, 0)
+        self.sdr_rx_meas1.set_if_gain(1, 0)
+        self.sdr_rx_meas1.set_bb_gain(1, 0)
+        self.sdr_rx_meas1.set_antenna('', 0)
+        self.sdr_rx_meas1.set_bandwidth(tx_samp_rate, 0)
+        self.sdr_rx_meas1.set_block_alias("16b Pitaya")
 
-        self.osmosdr_sink_0_0 = osmosdr.sink(
+        self.sdr_tx = osmosdr.sink(
             args="numchan=1 redpitaya=" + addr_out1
         )
-        self.osmosdr_sink_0_0.set_clock_source('gpsdo', 0)
-        self.osmosdr_sink_0_0.set_time_unknown_pps(osmosdr.time_spec_t())
-        self.osmosdr_sink_0_0.set_sample_rate(tx_samp_rate)
-        self.osmosdr_sink_0_0.set_center_freq(tx_fc, 0)
-        self.osmosdr_sink_0_0.set_freq_corr(0, 0)
-        self.osmosdr_sink_0_0.set_gain(1, 0)
-        self.osmosdr_sink_0_0.set_if_gain(1, 0)
-        self.osmosdr_sink_0_0.set_bb_gain(1, 0)
-        self.osmosdr_sink_0_0.set_antenna('', 0)
-        self.osmosdr_sink_0_0.set_bandwidth(tx_samp_rate, 0)
+        self.sdr_tx.set_clock_source('gpsdo', 0)
+        self.sdr_tx.set_time_unknown_pps(osmosdr.time_spec_t())
+        self.sdr_tx.set_sample_rate(tx_samp_rate)
+        self.sdr_tx.set_center_freq(tx_fc, 0)
+        self.sdr_tx.set_freq_corr(0, 0)
+        self.sdr_tx.set_gain(1, 0)
+        self.sdr_tx.set_if_gain(1, 0)
+        self.sdr_tx.set_bb_gain(1, 0)
+        self.sdr_tx.set_antenna('', 0)
+        self.sdr_tx.set_bandwidth(tx_samp_rate, 0)
 
-        self.fft_filter_xxx_0_0_0 = filter.fft_filter_ccc(
+        self.lpf_tx_ref = filter.fft_filter_ccc(
             1, firdes.low_pass(1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING), 1
         )
-        self.fft_filter_xxx_0_0_0.declare_sample_delay(0)
-        self.fft_filter_xxx_0_0 = filter.fft_filter_ccc(
+        self.lpf_tx_ref.declare_sample_delay(0)
+        self.lpf_rx_meas2 = filter.fft_filter_ccc(
             1, firdes.low_pass(1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING), 1
         )
-        self.fft_filter_xxx_0_0.declare_sample_delay(0)
-        self.fft_filter_xxx_0 = filter.fft_filter_ccc(
+        self.lpf_rx_meas2.declare_sample_delay(0)
+        self.lpf_rx_meas1 = filter.fft_filter_ccc(
             1, firdes.low_pass(1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING), 1
         )
-        self.fft_filter_xxx_0.declare_sample_delay(0)
+        self.lpf_rx_meas1.declare_sample_delay(0)
 
         # ── Raw-IQ file sinks ─────────────────────────────────────────────
         # Start at the null device so nothing is written until RECORD.
-        self.blocks_file_sink_0_0 = blocks.file_sink(
+        self.rec_rx_meas2 = blocks.file_sink(
             gr.sizeof_gr_complex * 1, os.devnull, False
         )
-        self.blocks_file_sink_0_0.set_unbuffered(False)
-        self.blocks_file_sink_0 = blocks.file_sink(
+        self.rec_rx_meas2.set_unbuffered(False)
+        self.rec_rx_meas1 = blocks.file_sink(
             gr.sizeof_gr_complex * 1, os.devnull, False
         )
-        self.blocks_file_sink_0.set_unbuffered(False)
+        self.rec_rx_meas1.set_unbuffered(False)
 
-        self.analog_sig_source_x_0_0 = analog.sig_source_c(
+        self.siggen_tx_tone = analog.sig_source_c(
             samp_rate, analog.GR_COS_WAVE, samp_rate, 1, 0, 0
         )
 
@@ -226,9 +226,11 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         ##################################################
         self.fft_size = cfg.fft_size
         # Sig-1 baseband (complex) for the FFT panel and amplitude bar
-        self.sink1    = blocks.vector_sink_c()
-        self.rb1      = RingBuffer(size=self.fft_size, dtype=np.complex64)
-        self.reader1  = ReaderThread(self.sink1, self.rb1, chunk=self.fft_size)
+        self.sink_lpf_rx_meas1   = blocks.vector_sink_c()
+        self.rb_lpf_rx_meas1     = RingBuffer(size=self.fft_size, dtype=np.complex64)
+        self.reader_lpf_rx_meas1 = ReaderThread(self.sink_lpf_rx_meas1,
+                                                self.rb_lpf_rx_meas1,
+                                                chunk=self.fft_size)
 
         # ── Phase chain (method from trx_ssb_phase) ───────────────────────
         # multiply_conjugate_cc computes  rx · conj(tx)  — a complex stream
@@ -236,32 +238,35 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # directly so the dashboard can do a magnitude-weighted circular
         # mean (np.angle(np.mean(...))) for a noise-robust phase readout;
         # the per-sample arg() is computed in the PhasePanel for plotting.
-        self.blocks_multiply_conjugate_cc_0 = blocks.multiply_conjugate_cc(1)
-        self.sink_prod   = blocks.vector_sink_c()
-        self.rb_prod     = RingBuffer(size=self.fft_size, dtype=np.complex64)
-        self.reader_prod = ReaderThread(self.sink_prod, self.rb_prod,
-                                        chunk=self.fft_size)
+        self.multiply_conjugate_rx_txconj = blocks.multiply_conjugate_cc(1)
+        self.sink_multiply_conjugate_rx_txconj   = blocks.vector_sink_c()
+        self.rb_multiply_conjugate_rx_txconj     = RingBuffer(size=self.fft_size, dtype=np.complex64)
+        self.reader_multiply_conjugate_rx_txconj = ReaderThread(
+            self.sink_multiply_conjugate_rx_txconj,
+            self.rb_multiply_conjugate_rx_txconj,
+            chunk=self.fft_size)
 
         ##################################################
         # GR Signal Connections
         ##################################################
-        self.connect((self.analog_sig_source_x_0_0, 0), (self.fft_filter_xxx_0_0_0, 0))
-        self.connect((self.fft_filter_xxx_0,     0), (self.blocks_file_sink_0,    0))
-        self.connect((self.fft_filter_xxx_0_0,   0), (self.blocks_file_sink_0_0,  0))
-        self.connect((self.fft_filter_xxx_0_0_0, 0), (self.osmosdr_sink_0_0,      0))
-        self.connect((self.osmosdr_source_0,     0), (self.fft_filter_xxx_0,      0))
-        self.connect((self.osmosdr_source_1,     0), (self.fft_filter_xxx_0_0,    0))
-        self.connect((self.fft_filter_xxx_0,     0), (self.sink1,                 0))
+        self.connect((self.siggen_tx_tone,  0), (self.lpf_tx_ref,          0))
+        self.connect((self.lpf_rx_meas1,    0), (self.rec_rx_meas1,        0))
+        self.connect((self.lpf_rx_meas2,    0), (self.rec_rx_meas2,        0))
+        self.connect((self.lpf_tx_ref,      0), (self.sdr_tx,              0))
+        self.connect((self.sdr_rx_meas1,    0), (self.lpf_rx_meas1,        0))
+        self.connect((self.sdr_rx_meas2,    0), (self.lpf_rx_meas2,        0))
+        self.connect((self.lpf_rx_meas1,    0), (self.sink_lpf_rx_meas1,   0))
 
         # Phase: rx · conj(tx)  — store complex product, angle is taken
         # in the dashboard (see PhasePanel / EqualizerPanel).
-        # input 0 = rx, input 1 = tx-ref  (multiply_conjugate = in0 * conj(in1))
-        self.connect((self.fft_filter_xxx_0,     0),
-                     (self.blocks_multiply_conjugate_cc_0, 0))
-        self.connect((self.fft_filter_xxx_0_0_0, 0),
-                     (self.blocks_multiply_conjugate_cc_0, 1))
-        self.connect((self.blocks_multiply_conjugate_cc_0, 0),
-                     (self.sink_prod, 0))
+        # in0 = lpf_rx_meas1 output (RX), in1 = lpf_tx_ref output (TX reference);
+        # block computes in0 * conj(in1); swapping ports negates all phase.
+        self.connect((self.lpf_rx_meas1,     0),
+                     (self.multiply_conjugate_rx_txconj, 0))
+        self.connect((self.lpf_tx_ref, 0),
+                     (self.multiply_conjugate_rx_txconj, 1))
+        self.connect((self.multiply_conjugate_rx_txconj, 0),
+                     (self.sink_multiply_conjugate_rx_txconj, 0))
 
         ##################################################
         # Settings ribbon (profile manager + Apply & Restart) on the MAIN window
@@ -273,8 +278,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # Unified Dashboard (main window content)
         ##################################################
         self.dashboard = UnifiedDashboard(
-            ringbuffer1=self.rb1,
-            ringbuffer_prod=self.rb_prod,
+            rb_lpf_rx_meas1=self.rb_lpf_rx_meas1,
+            rb_multiply_conjugate_rx_txconj=self.rb_multiply_conjugate_rx_txconj,
             fft_size=self.fft_size,
             samp_rate=self.samp_rate,
             ema_alpha=cfg.ema_alpha,
@@ -299,8 +304,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.top_layout.addWidget(self.main_tabs)
 
         # start reader threads
-        self.reader1.start()
-        self.reader_prod.start()
+        self.reader_lpf_rx_meas1.start()
+        self.reader_multiply_conjugate_rx_txconj.start()
 
     # ── Apply & Restart: write happened in the ribbon; tear down + re-exec ──
     def _apply_restart(self):
@@ -309,7 +314,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         except Exception:
             pass
         try:
-            self.reader1.stop(); self.reader_prod.stop()
+            self.reader_lpf_rx_meas1.stop(); self.reader_multiply_conjugate_rx_txconj.stop()
         except Exception:
             pass
         try:
@@ -323,8 +328,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
     def closeEvent(self, event):
         self.settings = Qt.QSettings("gnuradio/flowgraphs", "trx_ssb")
         self.settings.setValue("geometry", self.saveGeometry())
-        self.reader1.stop()
-        self.reader_prod.stop()
+        self.reader_lpf_rx_meas1.stop()
+        self.reader_multiply_conjugate_rx_txconj.stop()
         time.sleep(0.1)
         self.stop()
         self.wait()
@@ -371,45 +376,45 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
     def set_tx_samp_rate(self, tx_samp_rate):
         self.tx_samp_rate = tx_samp_rate
-        self.osmosdr_sink_0_0.set_sample_rate(self.tx_samp_rate)
-        self.osmosdr_sink_0_0.set_bandwidth(self.tx_samp_rate, 0)
-        self.osmosdr_source_0.set_bandwidth(self.tx_samp_rate, 0)
-        self.osmosdr_source_1.set_bandwidth(self.tx_samp_rate, 0)
+        self.sdr_tx.set_sample_rate(self.tx_samp_rate)
+        self.sdr_tx.set_bandwidth(self.tx_samp_rate, 0)
+        self.sdr_rx_meas1.set_bandwidth(self.tx_samp_rate, 0)
+        self.sdr_rx_meas2.set_bandwidth(self.tx_samp_rate, 0)
 
     def get_tx_fc(self):
         return self.tx_fc
 
     def set_tx_fc(self, tx_fc):
         self.tx_fc = tx_fc
-        self.osmosdr_sink_0_0.set_center_freq(self.tx_fc, 0)
+        self.sdr_tx.set_center_freq(self.tx_fc, 0)
 
     def get_samp_rate(self):
         return self.samp_rate
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
-        self.analog_sig_source_x_0_0.set_sampling_freq(self.samp_rate)
-        self.osmosdr_source_1.set_sample_rate(self.samp_rate)
+        self.siggen_tx_tone.set_sampling_freq(self.samp_rate)
+        self.sdr_rx_meas2.set_sample_rate(self.samp_rate)
 
     def get_rx_samp_rate(self):
         return self.rx_samp_rate
 
     def set_rx_samp_rate(self, rx_samp_rate):
         self.rx_samp_rate = rx_samp_rate
-        self.fft_filter_xxx_0.set_taps(
+        self.lpf_rx_meas1.set_taps(
             firdes.low_pass(1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING))
-        self.fft_filter_xxx_0_0.set_taps(
+        self.lpf_rx_meas2.set_taps(
             firdes.low_pass(1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING))
-        self.fft_filter_xxx_0_0_0.set_taps(
+        self.lpf_tx_ref.set_taps(
             firdes.low_pass(1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING))
-        self.osmosdr_source_0.set_sample_rate(self.rx_samp_rate)
+        self.sdr_rx_meas1.set_sample_rate(self.rx_samp_rate)
 
     def get_rem_file2(self):
         return self.rem_file2
 
     def set_rem_file2(self, rem_file2):
         self.rem_file2 = rem_file2
-        self.blocks_file_sink_0_0.open(
+        self.rec_rx_meas2.open(
             self.rem_file2 if self.rec_button == 1 else os.devnull
         )
 
@@ -418,7 +423,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
     def set_rem_file1(self, rem_file1):
         self.rem_file1 = rem_file1
-        self.blocks_file_sink_0.open(
+        self.rec_rx_meas1.open(
             self.rem_file1 if self.rec_button == 1 else os.devnull
         )
 
@@ -427,10 +432,10 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
     def set_rec_button(self, rec_button):
         self.rec_button = rec_button
-        self.blocks_file_sink_0.open(
+        self.rec_rx_meas1.open(
             self.rem_file1 if self.rec_button == 1 else os.devnull
         )
-        self.blocks_file_sink_0_0.open(
+        self.rec_rx_meas2.open(
             self.rem_file2 if self.rec_button == 1 else os.devnull
         )
 
@@ -439,8 +444,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
     def set_my_fc(self, my_fc):
         self.my_fc = my_fc
-        self.osmosdr_source_0.set_center_freq(self.my_fc, 0)
-        self.osmosdr_source_1.set_center_freq(self.my_fc, 0)
+        self.sdr_rx_meas1.set_center_freq(self.my_fc, 0)
+        self.sdr_rx_meas2.set_center_freq(self.my_fc, 0)
         self.dashboard.set_center_freq(self.my_fc)
 
     def get_loc_file(self):

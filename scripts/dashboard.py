@@ -25,7 +25,7 @@ class UnifiedDashboard(QWidget):
     can be driven from config.py.  
     """
 
-    def __init__(self, ringbuffer1, ringbuffer_prod,
+    def __init__(self, rb_lpf_rx_meas1, rb_multiply_conjugate_rx_txconj,
                  fft_size=4096, samp_rate=100_000,
                  ema_alpha=0.1, refresh_ms=20, emit_ms=100,
                  rolling_window_s=60.0,
@@ -49,17 +49,17 @@ class UnifiedDashboard(QWidget):
         top_split = _splitter(Qt.Qt.Horizontal)
 
         spectra_split = _splitter(Qt.Qt.Horizontal)
-        self._fft1 = FFTPanel('◈ FFT  SIGNAL 1', ringbuffer1,
+        self._fft1 = FFTPanel('◈ FFT  SIGNAL 1', rb_lpf_rx_meas1,
                               fft_size, samp_rate, _TEAL,
                               refresh_ms=refresh_ms)
-        self._phase_panel = PhasePanel('◈ PHASE  rx · conj(tx)', ringbuffer_prod,
+        self._phase_panel = PhasePanel('◈ PHASE  rx · conj(tx)', rb_multiply_conjugate_rx_txconj,
                                        samp_rate, _ORANGE,
                                        refresh_ms=refresh_ms)
         spectra_split.addWidget(self._fft1)
         spectra_split.addWidget(self._phase_panel)
         spectra_split.setSizes([1, 1])
 
-        self._eq = EqualizerPanel(ringbuffer1, ringbuffer_prod,
+        self._eq = EqualizerPanel(rb_lpf_rx_meas1, rb_multiply_conjugate_rx_txconj,
                                   fft_size, samp_rate,
                                   ema_alpha=ema_alpha,
                                   refresh_ms=refresh_ms,
