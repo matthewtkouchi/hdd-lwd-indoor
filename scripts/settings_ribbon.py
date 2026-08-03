@@ -96,12 +96,26 @@ class SettingsRibbon(QWidget):
         outer.setContentsMargins(6, 2, 6, 2)
         outer.setSpacing(2)
 
-        # ── Row 1: profile management ─────────────────────────────────────
+        # Fields stretch to fill the row instead of clumping on the left with
+        # dead space on the right.  Minimum (not fixed) widths, so the ribbon
+        # can still shrink -- fixed widths are what made the window
+        # unshrinkable and forced horizontal scrolling.
+        def _field(row, caption, widget, stretch=1, minw=55, tip=None):
+            lbl = QLabel(caption)
+            if tip:
+                lbl.setToolTip(tip)
+                widget.setToolTip(tip)
+            widget.setMinimumWidth(minw)
+            row.addWidget(lbl)
+            row.addWidget(widget, stretch)
+            return widget
+
+        # ── Row 1: profile management  |  status  |  actions ──────────────
         r1 = QHBoxLayout()
         r1.addWidget(QLabel("PROFILE:"))
         self.profile_combo = QComboBox()
-        self.profile_combo.setMinimumWidth(140)
-        r1.addWidget(self.profile_combo)
+        self.profile_combo.setMinimumWidth(120)
+        r1.addWidget(self.profile_combo, 2)
         for txt, fn in [("Load", self._on_load), ("Save", self._on_save),
                         ("Save As", self._on_saveas), ("Delete", self._on_delete)]:
             b = QPushButton(txt); b.clicked.connect(fn); r1.addWidget(b)
@@ -109,116 +123,105 @@ class SettingsRibbon(QWidget):
         self._dirty_lbl.setStyleSheet(f"color:{_TEAL};")
         r1.addWidget(self._dirty_lbl)
 
-        # Status shares row 1 rather than taking a row of its own — the
-        # ribbon sits above the dashboard and every row it adds is a row
-        # the plots lose.  Ignored size policy so a long message cannot
-        # widen the window (see 29a437c).
+        # Status shares this row rather than taking one of its own, and sits
+        # between the profile controls and the actions so the row has no
+        # empty gap.  Ignored size policy so a long message cannot widen the
+        # window.
         self._status_lbl = QLabel("")
         self._status_lbl.setStyleSheet(f"color:{_TEXT_DIM};")
         self._status_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self._status_lbl.setMinimumWidth(0)
-        r1.addWidget(self._status_lbl, 1)
-        outer.addLayout(r1)
+        r1.addWidget(self._status_lbl, 4)
 
-        # ── Rows 2-3: parameter fields + actions ──────────────────────────
-        # Split across two rows on purpose. Every edit here has a fixed
-        # width and every label costs its text width, so a single row had a
-        # hard minimum of ~1520 px — wider than a laptop screen, which made
-        # the whole window unshrinkable and forced horizontal scrolling to
-        # reach the right-hand panels.
-        r2 = QHBoxLayout()
-
-        r2.addWidget(QLabel("samp_rate:"))
-        self.samp_combo = QComboBox()
-        for hz in VALID_REDPITAYA_RATES:
-            self.samp_combo.addItem(_fmt_rate(hz), hz)
-        r2.addWidget(self.samp_combo)
-
-        r2.addWidget(QLabel("center_freq:"))
-        self.freq_edit = QLineEdit(); self.freq_edit.setValidator(QIntValidator(1, 2_000_000_000))
-        self.freq_edit.setFixedWidth(90)
-        self.freq_edit.setToolTip("Centre frequency in Hz (RX and TX).")
-        r2.addWidget(self.freq_edit)
-
-        r2.addWidget(QLabel("fft_size:"))
-        self.fft_combo = QComboBox()
-        for n in FFT_SIZES:
-            self.fft_combo.addItem(str(n), n)
-        r2.addWidget(self.fft_combo)
-
-        r2.addWidget(QLabel("plot_fps:"))
-        self.fps_edit = QLineEdit(); self.fps_edit.setValidator(QIntValidator(1, 240))
-        self.fps_edit.setFixedWidth(45); r2.addWidget(self.fps_edit)
-
-        r2.addWidget(QLabel("ema_alpha:"))
-        self.alpha_edit = QLineEdit()
-        av = QDoubleValidator(0.0001, 1.0, 4); self.alpha_edit.setValidator(av)
-        self.alpha_edit.setFixedWidth(55); r2.addWidget(self.alpha_edit)
-        r2.addStretch()
-        outer.addLayout(r2)
-
-        r3 = QHBoxLayout()
-
-        band_lbl = QLabel("search band:")
-        band_lbl.setToolTip(
-            "Hz, relative to the centre frequency. Bounds the peak search\n"
-            "only — it does not filter. See the SPECTRUM tab's PEAK SEARCH\n"
-            "plot for where the peak is actually being found.")
-        r3.addWidget(band_lbl)
-        self.band_lo = QLineEdit(); self.band_lo.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
-        self.band_lo.setFixedWidth(70); r3.addWidget(self.band_lo)
-        r3.addWidget(QLabel("..."))
-        self.band_hi = QLineEdit(); self.band_hi.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
-        self.band_hi.setFixedWidth(70); r3.addWidget(self.band_hi)
-
-        lpf_lbl = QLabel("lpf_cutoff:")
-        lpf_lbl.setToolTip(
-            "Receiver low-pass passband edge, in Hz. Shared by both RX\n"
-            "chains and the TX reference. Applied live -- fft_filter_ccc\n"
-            "taps are redesigned without rebuilding the flowgraph.")
-        r3.addWidget(lpf_lbl)
-        self.lpf_edit = QLineEdit()
-        self.lpf_edit.setValidator(QDoubleValidator(1.0, 1e9, 1))
-        self.lpf_edit.setFixedWidth(60); r3.addWidget(self.lpf_edit)
-
-        span_lbl = QLabel("spec_span:")
-        span_lbl.setToolTip(
-            "Spectrum tab half-span in Hz either side of centre.\n"
-            "0 = the whole sampled bandwidth. Narrowing this also cuts\n"
-            "the points drawn per frame, which is the real cost.")
-        r3.addWidget(span_lbl)
-        self.span_edit = QLineEdit()
-        self.span_edit.setValidator(QDoubleValidator(0.0, 1e9, 1))
-        self.span_edit.setFixedWidth(60); r3.addWidget(self.span_edit)
-
-        r3.addWidget(QLabel("note:"))
-        self.note_edit = QLineEdit(); self.note_edit.setFixedWidth(140)
-        self.note_edit.setToolTip("Names the capture files.")
-        r3.addWidget(self.note_edit)
-
-        r3.addStretch()
         self.apply_btn = QPushButton("APPLY")
         self.apply_btn.setToolTip(
-            "Apply to the running app. Frequency, note, band, smoothing and\n"
-            "refresh rate take effect immediately; sample rate and FFT size\n"
-            "rebuild the flowgraph in place. The window stays open either way."
-        )
+            "Apply to the running app. Frequency, note, search band, LPF,\n"
+            "smoothing and refresh rates take effect immediately; sample\n"
+            "rate and FFT size rebuild the flowgraph in place. The window\n"
+            "stays open either way.")
         self.apply_btn.clicked.connect(self._on_apply)
-        r3.addWidget(self.apply_btn)
+        r1.addWidget(self.apply_btn)
         self.restart_btn = QPushButton("RESTART")
         self.restart_btn.setToolTip(
             "Save and re-exec the whole process. Only needed if the radios\n"
-            "get into a state an in-place rebuild cannot clear."
-        )
+            "get into a state an in-place rebuild cannot clear.")
         self.restart_btn.clicked.connect(self._on_restart)
-        r3.addWidget(self.restart_btn)
+        r1.addWidget(self.restart_btn)
+        outer.addLayout(r1)
+
+        # ── Row 2: radio + display ────────────────────────────────────────
+        r2 = QHBoxLayout()
+        self.samp_combo = QComboBox()
+        for hz in VALID_REDPITAYA_RATES:
+            self.samp_combo.addItem(_fmt_rate(hz), hz)
+        _field(r2, "samp_rate:", self.samp_combo, 2, 90,
+               "Master I/Q rate. Changing it rebuilds the flowgraph in place.")
+
+        self.freq_edit = QLineEdit()
+        self.freq_edit.setValidator(QIntValidator(1, 2_000_000_000))
+        _field(r2, "center_freq:", self.freq_edit, 2, 80,
+               "Centre frequency in Hz (RX and TX). Applied live.")
+
+        self.fft_combo = QComboBox()
+        for n in FFT_SIZES:
+            self.fft_combo.addItem(str(n), n)
+        _field(r2, "fft_size:", self.fft_combo, 1, 70,
+               "FFT length. Sizes the ring buffers, so it rebuilds the\n"
+               "flowgraph in place.")
+
+        self.fps_edit = QLineEdit()
+        self.fps_edit.setValidator(QIntValidator(1, 240))
+        _field(r2, "plot_fps:", self.fps_edit, 1, 45,
+               "Dashboard refresh rate. The spectrum tab has its own\n"
+               "(spectrum_fps in settings.json, default 10).")
+
+        self.alpha_edit = QLineEdit()
+        self.alpha_edit.setValidator(QDoubleValidator(0.0001, 1.0, 4))
+        _field(r2, "ema_alpha:", self.alpha_edit, 1, 50,
+               "Amplitude smoothing, (0, 1]. Lower is smoother;\n"
+               "1 disables smoothing.")
+        outer.addLayout(r2)
+
+        # ── Row 3: analysis band + filter + note ──────────────────────────
+        r3 = QHBoxLayout()
+        band_tip = ("Hz, relative to the centre frequency. Bounds the peak\n"
+                    "search only -- it does not filter. The SPECTRUM tab's\n"
+                    "PEAK SEARCH plot shows where the peak is actually found.")
+        self.band_lo = QLineEdit()
+        self.band_lo.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
+        _field(r3, "search band:", self.band_lo, 1, 60, band_tip)
+        r3.addWidget(QLabel("..."))
+        self.band_hi = QLineEdit()
+        self.band_hi.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
+        self.band_hi.setMinimumWidth(60)
+        self.band_hi.setToolTip(band_tip)
+        r3.addWidget(self.band_hi, 1)
+
+        self.lpf_edit = QLineEdit()
+        self.lpf_edit.setValidator(QDoubleValidator(1.0, 1e9, 1))
+        _field(r3, "lpf_cutoff:", self.lpf_edit, 1, 55,
+               "Receiver low-pass passband edge, Hz. Shared by both RX\n"
+               "chains and the TX reference. Applied live -- the filter\n"
+               "taps are redesigned without rebuilding the flowgraph.")
+
+        self.span_edit = QLineEdit()
+        self.span_edit.setValidator(QDoubleValidator(0.0, 1e9, 1))
+        _field(r3, "spec_span:", self.span_edit, 1, 55,
+               "Spectrum tab half-span, Hz either side of centre.\n"
+               "0 = the whole sampled bandwidth (use this to hunt\n"
+               "interferers on the PRE-LPF plot).")
+
+        self.note_edit = QLineEdit()
+        _field(r3, "note:", self.note_edit, 3, 100,
+               "Names the capture files.")
         outer.addLayout(r3)
 
         # mark dirty on any edit
         for w in (self.samp_combo, self.fft_combo):
             w.currentIndexChanged.connect(self._update_dirty)
         for w in (self.freq_edit, self.fps_edit, self.alpha_edit,
-                  self.band_lo, self.band_hi, self.note_edit):
+                  self.band_lo, self.band_hi, self.note_edit,
+                  self.lpf_edit, self.span_edit):
             w.textChanged.connect(self._update_dirty)
 
     # ── Field <-> dict helpers ────────────────────────────────────────────
