@@ -1,0 +1,65 @@
+{
+  "loaded_from": "default",
+  "working": {
+    "rx_addr": "169.254.9.106",
+    "tx_addr": "169.254.102.116",
+    "center_freq_hz": 1000000,
+    "samp_rate_hz": 100000,
+    "band_hz": [
+      -30000,
+      30000
+    ],
+    "note": "RECORDING_NOTE",
+    "out_dir": "captures",
+    "file_base": "capture",
+    "remote_file_1": "rx1.bin",
+    "remote_file_2": "rx2.bin",
+    "fft_size": 4096,
+    "ema_alpha": 0.1,
+    "rolling_window_s": 60.0,
+    "plot_fps": 30,
+    "emit_interval_ms": 100
+  },
+  "profiles": {
+    "default": {
+      "rx_addr": "169.254.9.106",
+      "tx_addr": "169.254.102.116",
+      "center_freq_hz": 1000000,
+      "samp_rate_hz": 100000,
+      "band_hz": [
+        -30000,
+        30000
+      ],
+      "note": "RECORDING_NOTE",
+      "out_dir": "captures",
+      "file_base": "capture",
+      "remote_file_1": "rx1.bin",
+      "remote_file_2": "rx2.bin",
+      "fft_size": 4096,
+      "ema_alpha": 0.1,
+      "rolling_window_s": 60.0,
+      "plot_fps": 30,
+      "emit_interval_ms": 100
+    },
+    "indoor_demo_v1": {
+      "rx_addr": "169.254.9.106",
+      "tx_addr": "169.254.102.116",
+      "center_freq_hz": 1000000,
+      "samp_rate_hz": 100000,
+      "band_hz": [
+        -30000,
+        30000
+      ],
+      "note": "RECORDING_NOTE",
+      "out_dir": "captures",
+      "file_base": "capture",
+      "remote_file_1": "rx1.bin",
+      "remote_file_2": "rx2.bin",
+      "fft_size": 4096,
+      "ema_alpha": 0.1,
+      "rolling_window_s": 60.0,
+      "plot_fps": 30,
+      "emit_interval_ms": 100
+    }
+  }
+}
