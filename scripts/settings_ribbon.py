@@ -110,7 +110,12 @@ class SettingsRibbon(QWidget):
         r1.addStretch()
         outer.addLayout(r1)
 
-        # ── Row 2: parameter fields + apply ───────────────────────────────
+        # ── Rows 2-3: parameter fields + actions ──────────────────────────
+        # Split across two rows on purpose. Every edit here has a fixed
+        # width and every label costs its text width, so a single row had a
+        # hard minimum of ~1520 px — wider than a laptop screen, which made
+        # the whole window unshrinkable and forced horizontal scrolling to
+        # reach the right-hand panels.
         r2 = QHBoxLayout()
 
         r2.addWidget(QLabel("samp_rate:"))
@@ -119,9 +124,11 @@ class SettingsRibbon(QWidget):
             self.samp_combo.addItem(_fmt_rate(hz), hz)
         r2.addWidget(self.samp_combo)
 
-        r2.addWidget(QLabel("center_freq (Hz):"))
+        r2.addWidget(QLabel("center_freq:"))
         self.freq_edit = QLineEdit(); self.freq_edit.setValidator(QIntValidator(1, 2_000_000_000))
-        self.freq_edit.setFixedWidth(90); r2.addWidget(self.freq_edit)
+        self.freq_edit.setFixedWidth(90)
+        self.freq_edit.setToolTip("Centre frequency in Hz (RX and TX).")
+        r2.addWidget(self.freq_edit)
 
         r2.addWidget(QLabel("fft_size:"))
         self.fft_combo = QComboBox()
@@ -137,18 +144,29 @@ class SettingsRibbon(QWidget):
         self.alpha_edit = QLineEdit()
         av = QDoubleValidator(0.0001, 1.0, 4); self.alpha_edit.setValidator(av)
         self.alpha_edit.setFixedWidth(55); r2.addWidget(self.alpha_edit)
-
-        r2.addWidget(QLabel("search band (Hz):"))
-        self.band_lo = QLineEdit(); self.band_lo.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
-        self.band_lo.setFixedWidth(70); r2.addWidget(self.band_lo)
-        r2.addWidget(QLabel("..."))
-        self.band_hi = QLineEdit(); self.band_hi.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
-        self.band_hi.setFixedWidth(70); r2.addWidget(self.band_hi)
-
-        r2.addWidget(QLabel("note:"))
-        self.note_edit = QLineEdit(); self.note_edit.setFixedWidth(140); r2.addWidget(self.note_edit)
-
         r2.addStretch()
+        outer.addLayout(r2)
+
+        r3 = QHBoxLayout()
+
+        band_lbl = QLabel("search band:")
+        band_lbl.setToolTip(
+            "Hz, relative to the centre frequency. Bounds the peak search\n"
+            "only — it does not filter. See the SPECTRUM tab's PEAK SEARCH\n"
+            "plot for where the peak is actually being found.")
+        r3.addWidget(band_lbl)
+        self.band_lo = QLineEdit(); self.band_lo.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
+        self.band_lo.setFixedWidth(70); r3.addWidget(self.band_lo)
+        r3.addWidget(QLabel("..."))
+        self.band_hi = QLineEdit(); self.band_hi.setValidator(QIntValidator(-1_000_000_000, 1_000_000_000))
+        self.band_hi.setFixedWidth(70); r3.addWidget(self.band_hi)
+
+        r3.addWidget(QLabel("note:"))
+        self.note_edit = QLineEdit(); self.note_edit.setFixedWidth(140)
+        self.note_edit.setToolTip("Names the capture files.")
+        r3.addWidget(self.note_edit)
+
+        r3.addStretch()
         self.apply_btn = QPushButton("APPLY")
         self.apply_btn.setToolTip(
             "Apply to the running app. Frequency, note, band, smoothing and\n"
@@ -156,15 +174,15 @@ class SettingsRibbon(QWidget):
             "rebuild the flowgraph in place. The window stays open either way."
         )
         self.apply_btn.clicked.connect(self._on_apply)
-        r2.addWidget(self.apply_btn)
+        r3.addWidget(self.apply_btn)
         self.restart_btn = QPushButton("RESTART")
         self.restart_btn.setToolTip(
             "Save and re-exec the whole process. Only needed if the radios\n"
             "get into a state an in-place rebuild cannot clear."
         )
         self.restart_btn.clicked.connect(self._on_restart)
-        r2.addWidget(self.restart_btn)
-        outer.addLayout(r2)
+        r3.addWidget(self.restart_btn)
+        outer.addLayout(r3)
 
         # Status line for what APPLY actually did.  A QLabel's size hint
         # grows with its text, and inside the main window's QScrollArea that
