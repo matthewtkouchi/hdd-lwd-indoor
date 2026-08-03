@@ -54,6 +54,10 @@ class SettingsRibbon(QWidget):
         data = load_settings(self._path)
         self._working = dict(data.get("working", {}))
         self._loaded_name = data.get("loaded_from", "default")
+        # Placeholder so _update_dirty (fired by textChanged during
+        # _set_fields below) never sees the attribute missing; the real
+        # baseline is assigned right after.
+        self._loaded_ribbon = None
 
         self._build_ui()
         self._refresh_profile_combo(select=self._loaded_name)
