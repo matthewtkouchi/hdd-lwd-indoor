@@ -28,6 +28,7 @@ from PyQt5 import Qt
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
+    QSizePolicy,
 )
 from PyQt5.QtGui import QDoubleValidator
 
@@ -460,7 +461,7 @@ class RollingPanel(QWidget):
         hdr.addWidget(win_cap)
         self._win_edit = QLineEdit(f'{self.WINDOW_S:g}')
         self._win_edit.setValidator(QDoubleValidator(1.0, 3600.0, 2))
-        self._win_edit.setFixedWidth(60)
+        self._win_edit.setFixedWidth(52)
         self._win_edit.setToolTip(
             'Seconds of history shown. Press Enter to apply.\n'
             'Shortening trims the view at once, so the autoscale stops\n'
@@ -474,6 +475,10 @@ class RollingPanel(QWidget):
         hdr.addWidget(self._rec_btn)
         self._rec_status = QLabel('idle')
         self._rec_status.setObjectName('heading')
+        # Its text grows while recording ("REC 123.4s 4567 pts"); don't let
+        # that drive the dashboard's minimum width (see SettingsRibbon).
+        self._rec_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._rec_status.setMinimumWidth(0)
         hdr.addWidget(self._rec_status)
         layout.addLayout(hdr)
 

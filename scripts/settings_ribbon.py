@@ -23,7 +23,7 @@ The ribbon talks only to settings.json; it owns no GNU Radio state.
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QLineEdit, QInputDialog, QMessageBox,
+    QComboBox, QLineEdit, QInputDialog, QMessageBox, QSizePolicy,
 )
 from PyQt5.QtGui import QIntValidator, QDoubleValidator
 
@@ -157,7 +157,7 @@ class SettingsRibbon(QWidget):
         )
         self.apply_btn.clicked.connect(self._on_apply)
         r2.addWidget(self.apply_btn)
-        self.restart_btn = QPushButton("RESTART APP")
+        self.restart_btn = QPushButton("RESTART")
         self.restart_btn.setToolTip(
             "Save and re-exec the whole process. Only needed if the radios\n"
             "get into a state an in-place rebuild cannot clear."
@@ -166,9 +166,16 @@ class SettingsRibbon(QWidget):
         r2.addWidget(self.restart_btn)
         outer.addLayout(r2)
 
-        # status line for what APPLY actually did
+        # Status line for what APPLY actually did.  A QLabel's size hint
+        # grows with its text, and inside the main window's QScrollArea that
+        # would push the whole dashboard's minimum width out and produce a
+        # horizontal scrollbar.  Ignored policy = the label takes whatever
+        # width the layout has and never asks for more; the full message is
+        # always available in the tooltip.
         self._status_lbl = QLabel("")
         self._status_lbl.setStyleSheet(f"color:{_TEXT_DIM};")
+        self._status_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._status_lbl.setMinimumWidth(0)
         outer.addWidget(self._status_lbl)
 
         # mark dirty on any edit
@@ -234,6 +241,12 @@ class SettingsRibbon(QWidget):
             return self._get_fields()
         except ValueError:
             return None
+
+    def _set_status(self, text):
+        """Show a status message without letting it widen the layout."""
+        text = str(text)
+        self._status_lbl.setText(text)
+        self._status_lbl.setToolTip(text)
 
     # ── Dirty indicator ───────────────────────────────────────────────────
     def _update_dirty(self, *_):
@@ -334,7 +347,7 @@ class SettingsRibbon(QWidget):
                 self, "Unsafe settings — not applied",
                 "These values were rejected; the radios keep their current "
                 "settings:\n\n  • " + "\n\n  • ".join(errors))
-            self._status_lbl.setText(f"rejected ({len(errors)} problem(s)) — nothing applied")
+            self._set_status(f"rejected ({len(errors)} problem(s)) — nothing applied")
             return None
 
         self._working = clean
@@ -351,21 +364,21 @@ class SettingsRibbon(QWidget):
         if working is None:
             return
         self.apply_btn.setEnabled(False)
-        self._status_lbl.setText("applying...")
+        self._set_status("applying...")
         self._status_lbl.repaint()           # a rebuild blocks this thread
         try:
             result = self._apply_cb(dict(working))
         except Exception as exc:
-            self._status_lbl.setText(f"apply failed: {exc}")
+            self._set_status(f"apply failed: {exc}")
             print(f"[ribbon] apply failed: {exc}", flush=True)
             raise
         finally:
             self.apply_btn.setEnabled(True)
         warn = getattr(self, "_pending_warnings", None)
         if warn:
-            self._status_lbl.setText(f"{result}   |  ⚠ " + "; ".join(warn))
+            self._set_status(f"{result}   |  ⚠ " + "; ".join(warn))
         else:
-            self._status_lbl.setText(str(result))
+            self._set_status(result)
         self._pending_warnings = None
         # what is on screen is now what is saved
         self._loaded_ribbon = self._ribbon_subset(self._working)
