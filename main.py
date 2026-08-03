@@ -41,6 +41,7 @@ from gnuradio.fft import window
 # ── Import Misc Modules ────────────────────────────────────────────────
 import sys
 import signal
+import gc
 from argparse import ArgumentParser
 from gnuradio.eng_arg import eng_float, intx
 import osmosdr
@@ -318,20 +319,54 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.connect((lpf, 0), (rec, 0))
         return {"sdr": sdr, "lpf": lpf, "rec": rec}
 
+    # ── Release the Red Pitaya sockets ────────────────────────────────────
+    def _release_hardware(self, settle_s=None):
+        """Stop the flowgraph and destroy the osmosdr blocks.
+
+        Stopping the scheduler is not enough to hang up on the Pitaya: the
+        osmosdr blocks own the TCP sockets and stay alive as long as
+        anything references them.  os.execv keeps open file descriptors,
+        so a socket still owned by a live block survives into the restarted
+        process while the Pitaya still counts it as the connected client —
+        the fresh source then gets nothing and the scheduler reports
+        "thread body wrapper error: receiving samples failed".
+
+        Dropping every reference lets the C++ destructors close the
+        sockets; ``settle_s`` gives the Pitaya time to accept the
+        disconnect before we ask for a new one.
+        """
+        if settle_s is None:
+            settle_s = self.cfg.restart_settle_s
+        for name in ("reader_lpf_rx_meas1", "reader_multiply_conjugate_rx_txconj"):
+            reader = getattr(self, name, None)
+            if reader is not None:
+                try:
+                    reader.stop()
+                    reader.join(timeout=1.0)   # don't destroy sinks mid-read
+                except Exception:
+                    pass
+        try:
+            self.stop(); self.wait()
+        except Exception:
+            pass
+        try:
+            self.disconnect_all()
+        except Exception:
+            pass
+        # Blocks holding hardware sockets: drop them so ~source()/~sink() run.
+        for name in ("sdr_rx_meas1", "sdr_rx_meas2", "sdr_tx"):
+            if getattr(self, name, None) is not None:
+                setattr(self, name, None)
+        gc.collect()
+        time.sleep(settle_s)
+
     # ── Apply & Restart: write happened in the ribbon; tear down + re-exec ──
     def _apply_restart(self):
         try:
             self.settings.setValue("geometry", self.saveGeometry())
         except Exception:
             pass
-        try:
-            self.reader_lpf_rx_meas1.stop(); self.reader_multiply_conjugate_rx_txconj.stop()
-        except Exception:
-            pass
-        try:
-            self.stop(); self.wait()
-        except Exception:
-            pass
+        self._release_hardware()
         # Replace this process with a fresh one; it reloads settings.json.
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -339,11 +374,7 @@ class trx_ssb(gr.top_block, Qt.QWidget):
     def closeEvent(self, event):
         self.settings = Qt.QSettings("gnuradio/flowgraphs", "trx_ssb")
         self.settings.setValue("geometry", self.saveGeometry())
-        self.reader_lpf_rx_meas1.stop()
-        self.reader_multiply_conjugate_rx_txconj.stop()
-        time.sleep(0.1)
-        self.stop()
-        self.wait()
+        self._release_hardware()
         event.accept()
 
     # ── Recording path for the amp/phase CSV log ──────────────────────────
@@ -515,8 +546,7 @@ def main(top_block_cls=trx_ssb, options=None):
     tb.show()
 
     def sig_handler(sig=None, frame=None):
-        tb.stop()
-        tb.wait()
+        tb._release_hardware()
         Qt.QApplication.quit()
 
     signal.signal(signal.SIGINT,  sig_handler)

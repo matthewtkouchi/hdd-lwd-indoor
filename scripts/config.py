@@ -73,6 +73,11 @@ class AppConfig:
     plot_fps:         int   = 30            # live plot refresh rate (frames per second)
     emit_interval_ms: int   = 100           # rolling-chart / recorder cadence (ms)
 
+    # Pause after closing the Pitaya sockets before re-opening them on
+    # restart; too short and the new process finds the old client still
+    # connected ("receiving samples failed").
+    restart_settle_s: float = 0.5
+
     # ── Derived (computed; not stored as profile values) ──────────────────
     tx_port_1: str = field(init=False)
     tx_port_2: str = field(init=False)
