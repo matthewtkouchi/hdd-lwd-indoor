@@ -27,8 +27,9 @@ import pyqtgraph as pg
 from PyQt5 import Qt
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
 )
+from PyQt5.QtGui import QDoubleValidator
 
 from .ui_kit import (
     _BG, _PANEL, _BORDER, _TEAL, _TEAL_DIM, _ORANGE, _ORG_DIM,
@@ -449,6 +450,25 @@ class RollingPanel(QWidget):
         hdr = QHBoxLayout()
         hdr.addWidget(_heading('Rolling  /  Amplitude & Phase vs Time'))
         hdr.addStretch()
+
+        # Window width — live, no Apply needed. Shortening it is the fastest
+        # way to get the autoscale off an old transient: the scale is
+        # computed from the points still inside the window, so anything
+        # older than WINDOW_S stops holding the range open.
+        win_cap = QLabel('WINDOW (s):')
+        win_cap.setObjectName('heading')
+        hdr.addWidget(win_cap)
+        self._win_edit = QLineEdit(f'{self.WINDOW_S:g}')
+        self._win_edit.setValidator(QDoubleValidator(1.0, 3600.0, 2))
+        self._win_edit.setFixedWidth(60)
+        self._win_edit.setToolTip(
+            'Seconds of history shown. Press Enter to apply.\n'
+            'Shortening trims the view at once, so the autoscale stops\n'
+            'being held open by an old transient (the trimmed points are\n'
+            'discarded; widening again refills from live data).')
+        self._win_edit.editingFinished.connect(self._on_window_edit)
+        hdr.addWidget(self._win_edit)
+
         self._rec_btn = QPushButton('● START REC')
         self._rec_btn.clicked.connect(self._toggle_record)
         hdr.addWidget(self._rec_btn)
@@ -511,9 +531,65 @@ class RollingPanel(QWidget):
         self._path_provider = fn
 
     def set_window_s(self, window_s):
-        """Change the rolling span; takes effect as samples arrive."""
-        self.WINDOW_S = float(window_s)
-        self._pw_amp.setXRange(0.0, self.WINDOW_S, padding=0)
+        """Change the rolling span and redraw at once.
+
+        Trimming here (rather than waiting for the next sample) is the
+        point of the control: an old dip stops stretching the autoscale
+        the instant the window no longer covers it.
+        """
+        try:
+            window_s = float(window_s)
+        except (TypeError, ValueError):
+            return
+        if window_s <= 0:
+            return
+        self.WINDOW_S = window_s
+        if self._win_edit.text() != f'{window_s:g}':
+            self._win_edit.blockSignals(True)
+            self._win_edit.setText(f'{window_s:g}')
+            self._win_edit.blockSignals(False)
+        self._trim_and_redraw()
+
+    def _on_window_edit(self):
+        txt = self._win_edit.text().strip()
+        if not txt:
+            return
+        try:
+            v = float(txt)
+        except ValueError:
+            return
+        if v <= 0:
+            return
+        self.WINDOW_S = v
+        self._trim_and_redraw()
+
+    def _trim_and_redraw(self):
+        """Drop points outside the window, then rescale and redraw."""
+        if not hasattr(self, '_curve_amp'):      # called before _build_ui finished
+            return
+        if not self._t:
+            self._pw_amp.setXRange(0.0, self.WINDOW_S, padding=0)
+            return
+        t = self._t[-1]
+        t_min = t - self.WINDOW_S
+        while self._t and self._t[0] < t_min:
+            self._t.popleft()
+            self._amp.popleft()
+            self._phase.popleft()
+
+        tx      = np.fromiter(self._t,     dtype=float)
+        amp_arr = np.fromiter(self._amp,   dtype=float)
+        ph_arr  = np.fromiter(self._phase, dtype=float)
+        self._curve_amp.setData(tx, amp_arr)
+        self._curve_phase.setData(tx, ph_arr)
+        if self._amp_auto_btn.isChecked():
+            self._autoscale_y(self._pw_amp, amp_arr, min_span=3.0)
+        if self._phase_auto_btn.isChecked():
+            self._autoscale_y(self._pw_phase, ph_arr, min_span=10.0)
+        if t < self.WINDOW_S:
+            self._pw_amp.setXRange(0.0, self.WINDOW_S, padding=0)
+        else:
+            self._pw_amp.setXRange(t - self.WINDOW_S, t, padding=0)
 
     # ── Autoscale ─────────────────────────────────────────────────────────
     @staticmethod

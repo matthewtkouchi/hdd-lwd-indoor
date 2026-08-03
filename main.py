@@ -44,6 +44,7 @@ import os
 
 # ── Import Custom Modules ────────────────────────────────────────────────
 from scripts.config import AppConfig
+from scripts.validate import validate_profile
 from scripts.streaming import RingBuffer, ReaderThread
 from scripts.dashboard import UnifiedDashboard
 from scripts.settings_ribbon import SettingsRibbon
@@ -361,6 +362,12 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         status label.  Runs on the Qt main thread, so the panel timers
         cannot fire in the middle of a rebuild.
         """
+        # Second line of defence: the ribbon validates before calling, but
+        # nothing unvalidated should ever reach the radios.
+        profile, errors, _warnings = validate_profile(profile)
+        if errors:
+            return "rejected: " + "; ".join(errors)
+
         new = AppConfig.from_profile(profile)
         old = self.cfg
         changed = [k for k in AppConfig.profile_field_names()
@@ -370,32 +377,44 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
         needs_rebuild = [k for k in changed if k not in self.LIVE_KEYS]
         self.cfg = new
-        self._apply_live(new)
+        self._apply_live(new, set(changed))
         if needs_rebuild:
             self._rebuild_flowgraph()
             return "flowgraph rebuilt: " + ", ".join(needs_rebuild)
         return "applied live: " + ", ".join(changed)
 
-    def _apply_live(self, cfg) -> None:
-        """Push the in-place-changeable settings into the running objects."""
-        self.set_note(cfg.note)
-        self.set_band(list(cfg.band_hz))
-        if self.my_fc != cfg.center_freq_hz:
+    def _apply_live(self, cfg, changed: set) -> None:
+        """Push the in-place-changeable settings into the running objects.
+
+        Only fields in ``changed`` are pushed, so APPLY does not overwrite a
+        control the user set directly on a panel — the rolling-window width
+        lives on the RollingPanel and would otherwise snap back to whatever
+        settings.json last stored.
+        """
+        if "note" in changed:
+            self.set_note(cfg.note)
+        if "band_hz" in changed:
+            self.set_band(list(cfg.band_hz))
+        if "center_freq_hz" in changed:
             self.set_my_fc(cfg.center_freq_hz)   # RX radios + panel axes
             self.set_tx_fc(cfg.center_freq_hz)   # TX radio
-        self.file_base = os.path.join(self.out_dir, cfg.file_base)
-        # Only reopen a raw-IQ sink if its path really changed: file_sink.open()
-        # restarts the file and would truncate an in-progress recording.
-        rem1 = os.path.join(self.out_dir, cfg.remote_file_1)
-        if rem1 != self.rem_file1:
-            self.set_rem_file1(rem1)
-        rem2 = os.path.join(self.out_dir, cfg.remote_file_2)
-        if rem2 != self.rem_file2:
-            self.set_rem_file2(rem2)
-        self.dashboard.set_ema_alpha(cfg.ema_alpha)
-        self.dashboard.set_refresh_ms(cfg.plot_refresh_ms)
-        self.dashboard.set_emit_ms(cfg.emit_interval_ms)
-        self.dashboard.set_rolling_window_s(cfg.rolling_window_s)
+        if "file_base" in changed:
+            self.file_base = os.path.join(self.out_dir, cfg.file_base)
+        # file_sink.open() restarts the file, so only touch a sink whose
+        # path actually changed — otherwise APPLY would truncate an
+        # in-progress raw-IQ recording.
+        if "remote_file_1" in changed:
+            self.set_rem_file1(os.path.join(self.out_dir, cfg.remote_file_1))
+        if "remote_file_2" in changed:
+            self.set_rem_file2(os.path.join(self.out_dir, cfg.remote_file_2))
+        if "ema_alpha" in changed:
+            self.dashboard.set_ema_alpha(cfg.ema_alpha)
+        if "plot_fps" in changed:
+            self.dashboard.set_refresh_ms(cfg.plot_refresh_ms)
+        if "emit_interval_ms" in changed:
+            self.dashboard.set_emit_ms(cfg.emit_interval_ms)
+        if "rolling_window_s" in changed:
+            self.dashboard.set_rolling_window_s(cfg.rolling_window_s)
 
     def _rebuild_flowgraph(self) -> None:
         """Tear the flowgraph down and build it again, in place.

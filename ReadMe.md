@@ -69,6 +69,25 @@ The ribbon is the control strip above the dashboard tabs. It has two rows: profi
 
 ---
 
+#### Input safety checks (`scripts/validate.py`)
+
+Every profile goes through `validate_profile()` before it reaches the radios — from the ribbon's APPLY and again inside `apply_settings()`. It splits problems into two kinds:
+
+- **Errors — refused, nothing is applied.** The radios keep their current settings and a dialog explains why. These are the values that would reach hardware or silently corrupt a measurement: a centre frequency outside the Red Pitaya's 0–62.5 MHz range (the 125 MS/s converters' Nyquist limit — the FPGA image would *alias* rather than refuse, so a mistyped frequency has to be caught here), a sample rate that isn't one of the driver's supported rates (it silently falls back to 100 kHz and every frequency axis becomes wrong), an `fft_size` that isn't a power of two, an `ema_alpha` outside (0, 1], an ROI band that is inverted or lies entirely outside the sampled bandwidth (the mask would select no FFT bins and the equalizer would quietly stop updating), or an empty `note`.
+- **Warnings — applied, but reported** in the ribbon's status line. Display-only knobs are clamped to a sane range rather than refused (`plot_fps` to 1–120, `rolling_window_s` to 1–3600 s, `emit_interval_ms` to 10–10000 ms), and legal-but-odd values get a note (a very low centre frequency, an ROI wider than Nyquist, a `note` containing path separators).
+
+The rule behind the split: a display value that is merely silly can be corrected silently, but a hardware value that is wrong must never be silently corrected — clamping a mistyped centre frequency to the band edge would transmit on the wrong frequency without telling anyone.
+
+Transmit power is not exposed anywhere in the UI: the osmosdr sink's gains are fixed at construction, so there is no setting in the ribbon that can raise drive level, dissipation or voltage.
+
+#### Rolling window width
+
+The rolling strip-chart has a **WINDOW (s)** box in its header, left of the record button. Type a value and press Enter; it applies immediately, with no APPLY and no restart.
+
+The chart's x-axis is wall-clock time (`time.monotonic()`), so the scroll *speed* is real time and nothing changes it — not `fft_size`, not the centre frequency, not the averaging. `emit_interval_ms` (default 100 ms) only sets how densely points are drawn. What the window width controls is how long a point stays on screen, and therefore how long it keeps affecting the autoscale: `_autoscale_y` fits the range to the points still inside the window, so a big transient holds the scale open until it rolls off the left edge. Shortening the window is the fastest way to recover the detail after, say, keying the transmitter off and on — at 60 s you wait a minute for the dip to clear, at 10 s you wait ten seconds.
+
+Shortening trims the older points immediately (that is the point — the autoscale rescales at once rather than on the next sample). Those points are discarded, so widening the window again refills from live data rather than restoring history.
+
 #### What changing `fft_size` does internally
 
 It will not break anything — every consumer reads `fft_size` from the same source and resizes together at startup. `cfg.fft_size`:

@@ -30,6 +30,7 @@ from PyQt5.QtGui import QIntValidator, QDoubleValidator
 from scripts.config import (
     load_settings, save_settings, AppConfig, VALID_REDPITAYA_RATES,
 )
+from scripts.validate import validate_profile
 
 try:
     from scripts.ui_kit import _BG, _PANEL, _BORDER, _TEAL, _TEAL_DIM, _TEXT, _TEXT_DIM
@@ -314,17 +315,35 @@ class SettingsRibbon(QWidget):
     def _save_working(self):
         """Validate the fields and persist them as the working copy.
 
-        Returns the working dict, or None if a field is invalid.
+        Runs the full safety check (scripts/validate.py) before anything
+        reaches the radios: unsafe values are refused outright and nothing
+        is written, clamped values are reported and applied.
+
+        Returns the working dict, or None if the profile was rejected.
         """
         fields = self._get_fields_safe()
         if fields is None:
             QMessageBox.warning(self, "Invalid value", "Fix the highlighted fields first.")
             return None
-        self._working.update(fields)
+
+        candidate = dict(self._working)
+        candidate.update(fields)
+        clean, errors, warnings = validate_profile(candidate)
+        if errors:
+            QMessageBox.critical(
+                self, "Unsafe settings — not applied",
+                "These values were rejected; the radios keep their current "
+                "settings:\n\n  • " + "\n\n  • ".join(errors))
+            self._status_lbl.setText(f"rejected ({len(errors)} problem(s)) — nothing applied")
+            return None
+
+        self._working = clean
+        self._set_fields(clean)              # show any clamped values
         data = load_settings(self._path)
         data["working"] = self._working
         data["loaded_from"] = self._loaded_name
         save_settings(data, self._path)
+        self._pending_warnings = warnings
         return self._working
 
     def _on_apply(self):
@@ -342,7 +361,12 @@ class SettingsRibbon(QWidget):
             raise
         finally:
             self.apply_btn.setEnabled(True)
-        self._status_lbl.setText(str(result))
+        warn = getattr(self, "_pending_warnings", None)
+        if warn:
+            self._status_lbl.setText(f"{result}   |  ⚠ " + "; ".join(warn))
+        else:
+            self._status_lbl.setText(str(result))
+        self._pending_warnings = None
         # what is on screen is now what is saved
         self._loaded_ribbon = self._ribbon_subset(self._working)
         self._update_dirty()
