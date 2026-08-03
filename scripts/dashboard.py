@@ -10,7 +10,7 @@ single "SDR DASHBOARD" widget
 """
 
 from PyQt5 import Qt
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
 
 from .ui_kit import _STYLESHEET, _TEAL, _ORANGE, _splitter
 from .panels import FFTPanel, PhasePanel, EqualizerPanel, RollingPanel
@@ -39,11 +39,27 @@ class UnifiedDashboard(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(0)
+
         self._gr_toggle_btn = QPushButton('⚙  GR CONTROLS')
         self._gr_toggle_btn.setFixedHeight(24)
         self._gr_toggle_btn.clicked.connect(self._toggle_gr_window)
         self._gr_win_ref = None
-        outer.addWidget(self._gr_toggle_btn)
+        btn_row.addWidget(self._gr_toggle_btn)
+
+        # Synthetic pipe toggle — wired to a SynthPipeInjector via
+        # set_synth_pipe(); disabled until the injector is attached.
+        self._synth_btn = QPushButton('⦿ SYNTH PIPE: OFF')
+        self._synth_btn.setFixedHeight(24)
+        self._synth_btn.setEnabled(False)
+        self._synth_pipe = None
+        self._synth_btn.clicked.connect(
+            lambda: self._synth_pipe and self._synth_pipe.toggle())
+        btn_row.addWidget(self._synth_btn)
+
+        outer.addLayout(btn_row)
 
         # ── top row: FFT(sig 1) + Phase(sig 1) + equalizer side by side ──
         top_split = _splitter(Qt.Qt.Horizontal)
@@ -94,6 +110,17 @@ class UnifiedDashboard(QWidget):
 
     def set_gr_window(self, win):
         self._gr_win_ref = win
+
+    def set_synth_pipe(self, injector):
+        """Attach a SynthPipeInjector; its status drives the toggle button."""
+        self._synth_pipe = injector
+        self._synth_btn.setEnabled(True)
+        injector.status_changed.connect(self._on_synth_status)
+
+    def _on_synth_status(self, text, armed):
+        self._synth_btn.setText(text)
+        self._synth_btn.setStyleSheet(
+            'background-color: #7a3300;' if armed else '')
 
     def _toggle_gr_window(self):
         if self._gr_win_ref is None:

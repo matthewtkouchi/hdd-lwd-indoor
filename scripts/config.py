@@ -54,6 +54,17 @@ class AppConfig:
     samp_rate_hz:   int = 100_000           # master I/Q rate (must be a valid rate)
     band_hz: tuple = (-30_000, 30_000)      # ROI band [low, high]
 
+    # ── Synthetic pipe injection (test aid) ───────────────────────────────
+    # RX ch-1 stays REAL hardware data; when armed, a synthetic pipe echo
+    # (a scaled/rotated copy of the TX reference with a Gaussian envelope
+    # in distance) is ADDED to it. Disarmed = exact passthrough.
+    synth_pipe_s_over_p_db: float = -50.0   # echo strength rel. to direct coupling P (dB)
+    synth_pipe_phase_deg:   float = 90.0    # echo phase rel. to P (deg; eddy ~ quadrature)
+    synth_pipe_distance_m:  float = 5.0     # pipe position along the bore (m)
+    synth_pipe_sigma_m:     float = 0.5     # Gaussian half-width of the crossing (m)
+    synth_pipe_speed_mps:   float = 0.25    # simulated bit advance while armed (m/s)
+    synth_pipe_update_ms:   int   = 50      # injector gain-update cadence (ms)
+
     # ── Recording / file outputs ──────────────────────────────────────────
     note:          str = "RECORDING_NOTE"
     out_dir:       str = "captures"         # folder (relative to main.py) for saved files
