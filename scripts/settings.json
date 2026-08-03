@@ -18,7 +18,8 @@
     "ema_alpha": 0.1,
     "rolling_window_s": 60.0,
     "plot_fps": 30,
-    "emit_interval_ms": 100
+    "emit_interval_ms": 100,
+    "num_receivers": 1
   },
   "profiles": {
     "default": {
@@ -39,7 +40,8 @@
       "ema_alpha": 0.1,
       "rolling_window_s": 60.0,
       "plot_fps": 30,
-      "emit_interval_ms": 100
+      "emit_interval_ms": 100,
+      "num_receivers": 1
     },
     "indoor_demo_v1": {
       "rx_addr": "169.254.9.106",
@@ -59,7 +61,8 @@
       "ema_alpha": 0.1,
       "rolling_window_s": 60.0,
       "plot_fps": 30,
-      "emit_interval_ms": 100
+      "emit_interval_ms": 100,
+      "num_receivers": 1
     }
   }
 }

@@ -111,3 +111,32 @@ renamed to match: `ringbuffer1` → `rb_lpf_rx_meas1`, `ringbuffer_prod` →
 
 Output capture filenames (`rx1.bin`, `rx2.bin`, the amp/phase CSV) are
 unchanged.
+
+---
+
+#### `num_receivers` — how many receiver chains to build
+
+`num_receivers` in `settings.json` selects how many RX chains the flowgraph
+constructs. Each chain is built by `trx_ssb._build_rx_chain(idx, ...)`:
+
+    sdr_rx_measN (redpitaya <rx_addr>:100N)  ->  lpf_rx_measN  ->  rec_rx_measN
+
+- **`1` (default, matches the current hardware)** — only the RX IN1 chain
+  (port 1001) is built. `sdr_rx_meas2`, `lpf_rx_meas2` and `rec_rx_meas2`
+  are not created at all. With nothing plugged into RX IN2 that chain was
+  streaming, filtering (3301 taps) and recording (~800 kB/s) pure noise.
+- **`2`** — the RX IN2 chain (port 1002) is built as well. It is
+  record-only: it feeds `rec_rx_meas2` and nothing else, exactly as before.
+
+Only chain 1 gets the measurement taps — the `sink_lpf_rx_meas1` vector
+sink the panels read, and input 0 of `multiply_conjugate_rx_txconj`.
+Anything that touches chain-2 blocks (the sample-rate/centre-freq setters,
+the record start/stop) is guarded with
+`if getattr(self, 'sdr_rx_meas2', None) is not None:`, so it is a no-op in
+1-receiver mode.
+
+All LPFs (both receivers plus `lpf_tx_ref`) share one `firdes.low_pass`
+tap list — the three designs were always identical.
+
+Any value other than 1 or 2 raises a `ValueError` from `AppConfig` at
+startup.

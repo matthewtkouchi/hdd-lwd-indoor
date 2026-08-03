@@ -49,6 +49,11 @@ class AppConfig:
     rx_addr: str = "169.254.9.106"          # RX Red Pitaya IP
     tx_addr: str = "169.254.102.116"        # TX Red Pitaya IP
 
+    # ── Receiver count ────────────────────────────────────────────────────
+    # 1 = only RX IN1 (port 1001, the measurement channel) is built.
+    # 2 = also build the RX IN2 (port 1002) record-only chain.
+    num_receivers: int = 1
+
     # ── Radio tuning ──────────────────────────────────────────────────────
     center_freq_hz: int = 1_000_000         # RX + TX centre freq
     samp_rate_hz:   int = 100_000           # master I/Q rate (must be a valid rate)
@@ -77,6 +82,12 @@ class AppConfig:
         self.tx_port_1 = f"{self.tx_addr}:1001"
         self.tx_port_2 = f"{self.tx_addr}:1002"
         self.plot_refresh_ms = max(1, round(1000 / self.plot_fps))
+        if self.num_receivers not in (1, 2):
+            raise ValueError(
+                f"num_receivers must be 1 or 2, got {self.num_receivers!r}. "
+                f"1 = RX IN1 only (port 1001); 2 = also build the record-only "
+                f"RX IN2 chain (port 1002)."
+            )
         if self.samp_rate_hz not in VALID_REDPITAYA_RATES:
             print(
                 f"[config] WARNING: samp_rate_hz={self.samp_rate_hz} is not a "

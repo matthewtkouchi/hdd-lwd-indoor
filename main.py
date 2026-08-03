@@ -148,36 +148,21 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         ##################################################
         # GR Blocks
         ##################################################
-        self.sdr_rx_meas2 = osmosdr.source(
-            args="numchan=1 redpitaya=" + addr + ":1002"
+        # ── Receiver chains ───────────────────────────────────────────────
+        # One chain per connected receiver, built by _build_rx_chain():
+        #   sdr_rx_measN -> lpf_rx_measN -> rec_rx_measN
+        # Chain 1 (port 1001) is the measurement channel and gets the extra
+        # panel/phase taps below.  Chain 2 (port 1002) is record-only and is
+        # built only when num_receivers == 2 — with nothing plugged into RX
+        # IN2 it would otherwise stream, filter and record pure noise.
+        # All LPFs share one tap list: the designs are identical.
+        self.num_receivers = num_receivers = cfg.num_receivers
+        self.rx_lpf_taps = rx_lpf_taps = firdes.low_pass(
+            1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING
         )
-        self.sdr_rx_meas2.set_sample_rate(samp_rate)
-        self.sdr_rx_meas2.set_center_freq(my_fc, 0)
-        self.sdr_rx_meas2.set_freq_corr(0, 0)
-        self.sdr_rx_meas2.set_dc_offset_mode(0, 0)
-        self.sdr_rx_meas2.set_iq_balance_mode(0, 0)
-        self.sdr_rx_meas2.set_gain_mode(False, 0)
-        self.sdr_rx_meas2.set_gain(1, 0)
-        self.sdr_rx_meas2.set_if_gain(1, 0)
-        self.sdr_rx_meas2.set_bb_gain(1, 0)
-        self.sdr_rx_meas2.set_antenna('', 0)
-        self.sdr_rx_meas2.set_bandwidth(tx_samp_rate, 0)
-
-        self.sdr_rx_meas1 = osmosdr.source(
-            args="numchan=1 redpitaya=" + addr + ":1001"
-        )
-        self.sdr_rx_meas1.set_sample_rate(rx_samp_rate)
-        self.sdr_rx_meas1.set_center_freq(my_fc, 0)
-        self.sdr_rx_meas1.set_freq_corr(0, 0)
-        self.sdr_rx_meas1.set_dc_offset_mode(0, 0)
-        self.sdr_rx_meas1.set_iq_balance_mode(0, 0)
-        self.sdr_rx_meas1.set_gain_mode(False, 0)
-        self.sdr_rx_meas1.set_gain(1, 0)
-        self.sdr_rx_meas1.set_if_gain(1, 0)
-        self.sdr_rx_meas1.set_bb_gain(1, 0)
-        self.sdr_rx_meas1.set_antenna('', 0)
-        self.sdr_rx_meas1.set_bandwidth(tx_samp_rate, 0)
-        self.sdr_rx_meas1.set_block_alias("16b Pitaya")
+        for idx in range(1, num_receivers + 1):
+            self._build_rx_chain(idx, f"{addr}:{1000 + idx}", rx_lpf_taps,
+                                 rx_samp_rate, my_fc, tx_samp_rate)
 
         self.sdr_tx = osmosdr.sink(
             args="numchan=1 redpitaya=" + addr_out1
@@ -193,29 +178,9 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.sdr_tx.set_antenna('', 0)
         self.sdr_tx.set_bandwidth(tx_samp_rate, 0)
 
-        self.lpf_tx_ref = filter.fft_filter_ccc(
-            1, firdes.low_pass(1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING), 1
-        )
+        # TX reference LPF — same taps as the receiver LPFs (see above).
+        self.lpf_tx_ref = filter.fft_filter_ccc(1, rx_lpf_taps, 1)
         self.lpf_tx_ref.declare_sample_delay(0)
-        self.lpf_rx_meas2 = filter.fft_filter_ccc(
-            1, firdes.low_pass(1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING), 1
-        )
-        self.lpf_rx_meas2.declare_sample_delay(0)
-        self.lpf_rx_meas1 = filter.fft_filter_ccc(
-            1, firdes.low_pass(1, rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING), 1
-        )
-        self.lpf_rx_meas1.declare_sample_delay(0)
-
-        # ── Raw-IQ file sinks ─────────────────────────────────────────────
-        # Start at the null device so nothing is written until RECORD.
-        self.rec_rx_meas2 = blocks.file_sink(
-            gr.sizeof_gr_complex * 1, os.devnull, False
-        )
-        self.rec_rx_meas2.set_unbuffered(False)
-        self.rec_rx_meas1 = blocks.file_sink(
-            gr.sizeof_gr_complex * 1, os.devnull, False
-        )
-        self.rec_rx_meas1.set_unbuffered(False)
 
         self.siggen_tx_tone = analog.sig_source_c(
             samp_rate, analog.GR_COS_WAVE, samp_rate, 1, 0, 0
@@ -249,12 +214,11 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         ##################################################
         # GR Signal Connections
         ##################################################
+        # Each receiver's own  sdr_rx_measN -> lpf_rx_measN -> rec_rx_measN
+        # was already connected by _build_rx_chain(); what remains is the TX
+        # path and the chain-1-only panel/phase taps.
         self.connect((self.siggen_tx_tone,  0), (self.lpf_tx_ref,          0))
-        self.connect((self.lpf_rx_meas1,    0), (self.rec_rx_meas1,        0))
-        self.connect((self.lpf_rx_meas2,    0), (self.rec_rx_meas2,        0))
         self.connect((self.lpf_tx_ref,      0), (self.sdr_tx,              0))
-        self.connect((self.sdr_rx_meas1,    0), (self.lpf_rx_meas1,        0))
-        self.connect((self.sdr_rx_meas2,    0), (self.lpf_rx_meas2,        0))
         self.connect((self.lpf_rx_meas1,    0), (self.sink_lpf_rx_meas1,   0))
 
         # Phase: rx · conj(tx)  — store complex product, angle is taken
@@ -306,6 +270,53 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         # start reader threads
         self.reader_lpf_rx_meas1.start()
         self.reader_multiply_conjugate_rx_txconj.start()
+
+    # ── Receiver chain factory ────────────────────────────────────────────
+    def _build_rx_chain(self, idx: int, addr_port: str, lpf_taps,
+                        rx_samp_rate, my_fc, tx_samp_rate):
+        """Build sdr_rx_measN -> lpf_rx_measN -> rec_rx_measN.
+
+        Creates the three blocks as ``self.<name>_meas{idx}``, connects them,
+        and returns them as a dict.  The osmosdr set_* sequence below is the
+        configuration every receiver has always used; only the address/port
+        differs per chain.
+
+        Chain-1-only extras (the vector-sink panel tap and the feed into
+        multiply_conjugate_rx_txconj in0) stay in __init__ — this factory
+        builds the record path that every receiver shares.
+        """
+        is_primary = (idx == 1)
+
+        sdr = osmosdr.source(args="numchan=1 redpitaya=" + addr_port)
+        sdr.set_sample_rate(rx_samp_rate)
+        sdr.set_center_freq(my_fc, 0)
+        sdr.set_freq_corr(0, 0)
+        sdr.set_dc_offset_mode(0, 0)
+        sdr.set_iq_balance_mode(0, 0)
+        sdr.set_gain_mode(False, 0)
+        sdr.set_gain(1, 0)
+        sdr.set_if_gain(1, 0)
+        sdr.set_bb_gain(1, 0)
+        sdr.set_antenna('', 0)
+        sdr.set_bandwidth(tx_samp_rate, 0)
+        if is_primary:
+            sdr.set_block_alias("16b Pitaya")
+
+        lpf = filter.fft_filter_ccc(1, lpf_taps, 1)
+        lpf.declare_sample_delay(0)
+
+        # Raw-IQ file sink: starts at the null device so nothing is written
+        # until RECORD (see set_rec_button).
+        rec = blocks.file_sink(gr.sizeof_gr_complex * 1, os.devnull, False)
+        rec.set_unbuffered(False)
+
+        setattr(self, f"sdr_rx_meas{idx}", sdr)
+        setattr(self, f"lpf_rx_meas{idx}", lpf)
+        setattr(self, f"rec_rx_meas{idx}", rec)
+
+        self.connect((sdr, 0), (lpf, 0))
+        self.connect((lpf, 0), (rec, 0))
+        return {"sdr": sdr, "lpf": lpf, "rec": rec}
 
     # ── Apply & Restart: write happened in the ribbon; tear down + re-exec ──
     def _apply_restart(self):
@@ -379,7 +390,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.sdr_tx.set_sample_rate(self.tx_samp_rate)
         self.sdr_tx.set_bandwidth(self.tx_samp_rate, 0)
         self.sdr_rx_meas1.set_bandwidth(self.tx_samp_rate, 0)
-        self.sdr_rx_meas2.set_bandwidth(self.tx_samp_rate, 0)
+        if getattr(self, 'sdr_rx_meas2', None) is not None:
+            self.sdr_rx_meas2.set_bandwidth(self.tx_samp_rate, 0)
 
     def get_tx_fc(self):
         return self.tx_fc
@@ -394,19 +406,21 @@ class trx_ssb(gr.top_block, Qt.QWidget):
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
         self.siggen_tx_tone.set_sampling_freq(self.samp_rate)
-        self.sdr_rx_meas2.set_sample_rate(self.samp_rate)
+        if getattr(self, 'sdr_rx_meas2', None) is not None:
+            self.sdr_rx_meas2.set_sample_rate(self.samp_rate)
 
     def get_rx_samp_rate(self):
         return self.rx_samp_rate
 
     def set_rx_samp_rate(self, rx_samp_rate):
         self.rx_samp_rate = rx_samp_rate
-        self.lpf_rx_meas1.set_taps(
-            firdes.low_pass(1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING))
-        self.lpf_rx_meas2.set_taps(
-            firdes.low_pass(1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING))
-        self.lpf_tx_ref.set_taps(
-            firdes.low_pass(1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING))
+        # One design shared by every filter, as at construction time.
+        self.rx_lpf_taps = firdes.low_pass(
+            1, self.rx_samp_rate, 1e3, 1e2, window.WIN_HAMMING)
+        self.lpf_rx_meas1.set_taps(self.rx_lpf_taps)
+        if getattr(self, 'lpf_rx_meas2', None) is not None:
+            self.lpf_rx_meas2.set_taps(self.rx_lpf_taps)
+        self.lpf_tx_ref.set_taps(self.rx_lpf_taps)
         self.sdr_rx_meas1.set_sample_rate(self.rx_samp_rate)
 
     def get_rem_file2(self):
@@ -414,9 +428,10 @@ class trx_ssb(gr.top_block, Qt.QWidget):
 
     def set_rem_file2(self, rem_file2):
         self.rem_file2 = rem_file2
-        self.rec_rx_meas2.open(
-            self.rem_file2 if self.rec_button == 1 else os.devnull
-        )
+        if getattr(self, 'rec_rx_meas2', None) is not None:
+            self.rec_rx_meas2.open(
+                self.rem_file2 if self.rec_button == 1 else os.devnull
+            )
 
     def get_rem_file1(self):
         return self.rem_file1
@@ -435,9 +450,10 @@ class trx_ssb(gr.top_block, Qt.QWidget):
         self.rec_rx_meas1.open(
             self.rem_file1 if self.rec_button == 1 else os.devnull
         )
-        self.rec_rx_meas2.open(
-            self.rem_file2 if self.rec_button == 1 else os.devnull
-        )
+        if getattr(self, 'rec_rx_meas2', None) is not None:
+            self.rec_rx_meas2.open(
+                self.rem_file2 if self.rec_button == 1 else os.devnull
+            )
 
     def get_my_fc(self):
         return self.my_fc
@@ -445,7 +461,8 @@ class trx_ssb(gr.top_block, Qt.QWidget):
     def set_my_fc(self, my_fc):
         self.my_fc = my_fc
         self.sdr_rx_meas1.set_center_freq(self.my_fc, 0)
-        self.sdr_rx_meas2.set_center_freq(self.my_fc, 0)
+        if getattr(self, 'sdr_rx_meas2', None) is not None:
+            self.sdr_rx_meas2.set_center_freq(self.my_fc, 0)
         self.dashboard.set_center_freq(self.my_fc)
 
     def get_loc_file(self):
