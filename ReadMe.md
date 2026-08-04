@@ -106,11 +106,39 @@ You do not need a signal generator. **The TX Pitaya is a known source** — and 
 
 **Two-point linearity check** (worth doing once, costs nothing extra). Repeat step 3 with a known attenuator in line. The dBFS reading should drop by exactly the attenuator's value. If a 20 dB pad moves the reading by 20 dB, the whole chain is linear and the single-offset model is valid; if it moves by 14 dB, something is compressing and one offset will not describe the receiver.
 
-**What the offset assumes.** It is only valid while the physical path stays as it was during calibration:
+**What the offset covers — and what it deliberately does not.**
 
-- Calibrate through the *same* input, jumper position and termination you measure with. The STEMlab fast inputs are high-impedance, not 50 Ω, so an unterminated line reads roughly 6 dB high — harmless if calibration and measurement share it, a 6 dB error if you add a terminator afterwards.
-- TX drive must be unchanged. Nothing in the ribbon touches TX amplitude or gain (the sink's gains are fixed at construction and the baseband tone is a constant), so this holds unless the flowgraph is edited.
-- Re-run it after any front-end change: a different LNA, a different cable, a moved jumper.
+The loopback calibrates the **receiver, from the RX connector inwards**: the ADC full-scale mapping, gr-osmosdr's normalisation, the input range and the termination. None of that changes when the cable is swapped for the coil setup, so the offset stays valid.
+
+It does *not* cover the TX coil, the propagation path, or the RX coil — and it should not. Those are the quantity you are trying to measure:
+
+```
+total system loss (dB) = measured_dBm − TX_dBm = measured_dBm − (−6)
+```
+
+Putting any of them in the calibration would subtract out the answer.
+
+**The caveat that does matter: source impedance.** The Red Pitaya's fast inputs are high-impedance, so the receiver measures the *open-circuit voltage* at its connector. Converting a voltage into an available power needs the source impedance:
+
+```
+P_available = Voc² / (8 · Re(Zs))
+```
+
+The calibration was done with a 50 Ω source (the TX output), so the offset bakes in `Zs = 50 Ω`. A receive coil is not 50 Ω unless it has been matched, and the error goes straight into the dBm number:
+
+| coil Zs | error in the reading |
+|---|---|
+| 5 Ω | +10 dB |
+| 12.5 Ω | +6 dB |
+| 50 Ω | 0 dB (as calibrated) |
+| 200 Ω | −6 dB |
+| 2 kΩ | −16 dB |
+
+So with an unmatched coil the readout is best understood as a **calibrated voltage measurement expressed in dBm-into-50 Ω**. It is exactly repeatable, and differences between measurements on the same coil are true dB — which is all the obstacle detection needs. It is only the *absolute* figure that inherits the impedance assumption.
+
+To make it a true power measurement: terminate the RX input in 50 Ω, feed the coil through a matching network, and redo the loopback with the terminator in place (that alone shifts the offset by about 6 dB). The same question applies at the TX end — "−6 dBm out" is the power into a 50 Ω load, and an unmatched coil will not accept all of it.
+
+**The offset is also only valid while the physical path is unchanged:** same input, jumper position and termination as at calibration; unchanged TX drive (nothing in the ribbon touches it); and re-run it after any front-end change or a large retune (measured: about 1 dB down at 400 kHz versus 800 kHz).
 
 #### The SPECTRUM tab
 
