@@ -181,12 +181,31 @@ class DataModel(QObject):
         self.computed = CSVData(path="", name="(computed)", headers=[])
         self.changed.emit()
 
+    def _short_names(self) -> dict:
+        """Per-dataset display names: extension and shared prefix removed.
+
+        Recordings are named "<file_base>_ampphase_<note>_<timestamp>.csv",
+        so every loaded file starts with the same 20-odd characters and the
+        part that actually identifies it is at the end.  Dropping the
+        common prefix leaves just that.  Adaptive rather than hard-coded,
+        so it does the right thing for any naming scheme -- and nothing at
+        all when the names share no prefix.
+        """
+        stems = [os.path.splitext(d.name)[0] for d in self.datasets]
+        if len(stems) > 1:
+            pre = os.path.commonprefix(stems)
+            cut = max(pre.rfind("_"), pre.rfind("-"), pre.rfind(" "))
+            if cut > 0:
+                stems = [st[cut + 1:] or st for st in stems]
+        return {id(d): st for d, st in zip(self.datasets, stems)}
+
     def series(self) -> list:
         multi = len(self.datasets) > 1
+        short = self._short_names()
         out = []
         for d in self.datasets:
             for h in d.columns:
-                label = f"{d.name}: {h}" if multi else h
+                label = f"{short[id(d)]}: {h}" if multi else h
                 out.append(Series(d, h, label))
         # computed columns have unique, user-given names -> no prefix needed
         for h in self.computed.columns:
@@ -929,6 +948,14 @@ class ComputeTab(BaseTab):
         save = QPushButton("Save computed CSV…")
         save.clicked.connect(self._save_csv)
         ribbon.addWidget(save)
+        copy = QPushButton("Copy checked → clipboard")
+        copy.setToolTip(
+            "Copy the checked columns as tab-separated text, ready to paste\n"
+            "into a spreadsheet. Columns of unequal length are padded with\n"
+            "blanks rather than clipped, so nothing is thrown away.\n"
+            "Tick 'axis cols' first if you want elapsed_s alongside.")
+        copy.clicked.connect(self._copy_checked)
+        ribbon.addWidget(copy)
         ribbon.addStretch()
         self._status = QLabel("Build averages and differences from your columns.")
         ribbon.addWidget(self._status)
@@ -1093,6 +1120,27 @@ class ComputeTab(BaseTab):
     def _checked_series(self) -> list:
         smap = self._series_map()
         return [smap[l] for l in self._inputs.checked_labels() if l in smap]
+
+    def _copy_checked(self):
+        """Checked columns to the clipboard as TSV, one column each.
+
+        Unequal lengths are padded with blanks, not clipped: a spreadsheet
+        is perfectly happy with ragged columns, and clipping would discard
+        the tail of every run longer than the shortest one.
+        """
+        chosen = self._checked_series()
+        if not chosen:
+            self._status.setText("Check the columns you want to copy.")
+            return
+        cols = [s.y for s in chosen]
+        n = max(len(c) for c in cols)
+        lines = ["\t".join(s.label for s in chosen)]
+        for i in range(n):
+            lines.append("\t".join(
+                f"{c[i]:.6g}" if i < len(c) else "" for c in cols))
+        QApplication.clipboard().setText("\n".join(lines))
+        self._status.setText(
+            f"Copied {len(chosen)} column(s) x {n} rows to the clipboard.")
 
     # ── operations ────────────────────────────────────────────────────────
     def _make_average(self):

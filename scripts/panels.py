@@ -752,6 +752,14 @@ class RollingPanel(QWidget):
         self._rec_btn = QPushButton('● START REC')
         self._rec_btn.clicked.connect(self._toggle_record)
         hdr.addWidget(self._rec_btn)
+
+        self._copy_btn = QPushButton('COPY REC')
+        self._copy_btn.setToolTip(
+            'Copy the last recording to the clipboard as tab-separated\n'
+            'text, ready to paste straight into a spreadsheet column block.\n'
+            'Includes elapsed_s so the run carries its own time axis.')
+        self._copy_btn.clicked.connect(self._copy_recording)
+        hdr.addWidget(self._copy_btn)
         self._rec_status = QLabel('idle')
         self._rec_status.setObjectName('heading')
         # Its text grows while recording ("REC 123.4s 4567 pts"); don't let
@@ -950,6 +958,41 @@ class RollingPanel(QWidget):
                 self._rec_status.setText(f'REC {elapsed:6.1f}s  {self._rec_count} pts')
             except Exception as exc:
                 print(f'[rec] write error: {exc}', flush=True)
+
+    def _copy_recording(self):
+        """Put the last recording on the clipboard as TSV.
+
+        Read back from the file rather than the plot buffers: those are
+        trimmed to the rolling window, so they hold only the last WINDOW_S
+        seconds, not the whole run.
+
+        elapsed_s is included on purpose.  The emit timer is a Qt timer,
+        not sample-locked, so row N of two runs is not the same instant --
+        carrying each run's own timestamps is what keeps it honest when
+        several recordings sit side by side in a spreadsheet.
+        """
+        path = self._rec_path
+        if not path or not os.path.exists(path):
+            self._rec_status.setText('nothing recorded yet')
+            return
+        try:
+            if self._rec_file is not None:
+                self._rec_file.flush()       # still recording: copy so far
+            with open(path, newline='') as f:
+                rows = list(csv.reader(f))
+        except Exception as exc:
+            self._rec_status.setText('copy failed')
+            print(f'[rec] copy error: {exc}', flush=True)
+            return
+        if not rows:
+            self._rec_status.setText('recording is empty')
+            return
+        Qt.QApplication.clipboard().setText(
+            '\n'.join('\t'.join(r) for r in rows))
+        self._rec_status.setText(
+            f'copied {len(rows) - 1} rows x {len(rows[0])} cols')
+        print(f'[rec] copied {len(rows)-1} rows from {os.path.basename(path)}',
+              flush=True)
 
     # ── Recording control ─────────────────────────────────────────────────
     def _toggle_record(self):
