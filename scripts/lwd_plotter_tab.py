@@ -31,6 +31,7 @@ Run standalone (PyQt5) for testing without GNU Radio:
 from __future__ import annotations
 
 import csv
+import re
 import os
 import sys
 from dataclasses import dataclass, field
@@ -40,9 +41,10 @@ import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
 from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QPushButton,
-    QSplitter, QTabWidget, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter,
+    QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMainWindow, QPushButton, QSplitter, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 # Set this to e.g. ["elapsed_s", "amplitude_dB", "phase_deg"] to require/limit
@@ -223,15 +225,68 @@ def xy_for(dataset: CSVData, x_name: str, y: np.ndarray):
 
 KINDS = ["Auto", "Linear", "dB", "Phase"]
 
+# Naming convention for derived columns:  <name>_avg_<unit>
+#   name : whatever the user typed
+#   avg  : mandatory marker, so later steps can find averages
+#   unit : the kind, so kind_of() infers it correctly downstream
+AVG_TAG = "avg"
+# Token written for each kind. Change LINEAR_UNIT to "W" if your linear
+# columns really are watts; "lin" is neutral because a normalised ratio is
+# linear too.
+LINEAR_UNIT = "lin"
+_UNIT_FOR_KIND = {"dB": "db", "Phase": "deg", "Linear": LINEAR_UNIT}
+
+# Whole-token unit markers, checked from the end of the name so that the
+# convention's trailing unit wins (e.g. "phase_db" is dB, not Phase).
+_UNIT_TOKENS = {
+    "db": "dB", "dbm": "dB", "dbfs": "dB", "dbv": "dB", "dbw": "dB",
+    "deg": "Phase", "degs": "Phase", "degree": "Phase", "degrees": "Phase",
+    "phase": "Phase", "rad": "Phase", "rads": "Phase",
+    "lin": "Linear", "w": "Linear", "watt": "Linear", "watts": "Linear",
+    "v": "Linear", "volt": "Linear", "volts": "Linear",
+}
+
+
+def _tokens(name: str) -> list:
+    return [t for t in re.split(r"[^A-Za-z0-9]+", name.lower()) if t]
+
+
+def unit_token(kind: str) -> str:
+    """The name token that records ``kind`` for later auto-detection."""
+    return _UNIT_FOR_KIND.get(kind, LINEAR_UNIT)
+
+
+def is_average(name: str) -> bool:
+    """True if the column was produced by the Average step."""
+    return AVG_TAG in _tokens(name)
+
 
 def kind_of(name: str, override: str = "Auto") -> str:
-    """Guess how a column should be combined from its name."""
+    """Guess how a column should be combined from its name.
+
+    Name-based only -- the data is never inspected -- so it is worth being
+    careful about *how* the name is read:
+
+    * whole tokens are matched before substrings, and the LAST unit token
+      wins, so the "<name>_avg_<unit>" convention is authoritative and
+      "phase_db" reads as dB rather than Phase;
+    * the substring fallback requires a token to *start* with "db", so
+      "feedback_amp" is no longer mistaken for a dB column.
+
+    Anything with no recognisable unit falls back to Linear, which is the
+    one genuinely dangerous case: averaging dB values arithmetically is
+    several dB wrong.  Callers should surface the inferred kind rather
+    than let it apply silently.
+    """
     if override != "Auto":
         return override
-    n = name.lower()
-    if "phase" in n or "deg" in n:
+    toks = _tokens(name)
+    for t in reversed(toks):                 # trailing unit is the convention
+        if t in _UNIT_TOKENS:
+            return _UNIT_TOKENS[t]
+    if any("phase" in t for t in toks):
         return "Phase"
-    if "db" in n:
+    if any(t.startswith("db") for t in toks):
         return "dB"
     return "Linear"
 
@@ -269,11 +324,151 @@ class BaseTab(QWidget):
     TAB_NAME = "Tab"
 
 
-def _checkable_list() -> QListWidget:
-    lw = QListWidget()
-    lw.setMinimumWidth(180)
-    lw.setMaximumWidth(260)
-    return lw
+class CheckList(QListWidget):
+    """Checkable column list with real multi-select.
+
+    The checkbox stays the persistent "is this included" state -- it is
+    visible at a glance and survives the list being rebuilt.  Selection is
+    the bulk-edit gesture on top of it: drag, shift-click and ctrl-click
+    pick a range, then Space (or the Toggle button) flips every checkbox
+    in that range at once, instead of clicking each small box.
+
+    Item text carries the inferred kind for visibility; the real column
+    label lives in Qt.UserRole, so every lookup goes through label_of()
+    and the decoration can change without breaking callers.
+    """
+
+    checksChanged = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setMinimumWidth(180)
+        self.itemChanged.connect(lambda *_: self.checksChanged.emit())
+
+    # ── keyboard ──────────────────────────────────────────────────────────
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            if self.selectedItems():
+                self.toggle_selected()
+                return
+        super().keyPressEvent(event)
+
+    # ── label <-> item ────────────────────────────────────────────────────
+    @staticmethod
+    def label_of(item) -> str:
+        lbl = item.data(Qt.UserRole)
+        return item.text() if lbl is None else lbl
+
+    def _items(self):
+        return [self.item(i) for i in range(self.count())]
+
+    def checked_labels(self) -> list:
+        return [self.label_of(it) for it in self._items()
+                if it.checkState() == Qt.Checked]
+
+    def repopulate(self, labels, keep_checked=None, kind_getter=None):
+        """Rebuild from ``labels``, preserving checks and selection."""
+        if keep_checked is None:
+            keep_checked = set(self.checked_labels())
+        selected = {self.label_of(it) for it in self.selectedItems()}
+        self.blockSignals(True)
+        self.clear()
+        for lbl in labels:
+            text = lbl
+            if kind_getter is not None:
+                text = f"{lbl}   [{kind_getter(lbl)}]"
+            it = QListWidgetItem(text)
+            it.setData(Qt.UserRole, lbl)
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Checked if lbl in keep_checked else Qt.Unchecked)
+            self.addItem(it)
+            if lbl in selected:
+                it.setSelected(True)
+        self.blockSignals(False)
+
+    # ── bulk edits ────────────────────────────────────────────────────────
+    def _set_many(self, items, state):
+        if not items:
+            return
+        self.blockSignals(True)
+        for it in items:
+            it.setCheckState(state)
+        self.blockSignals(False)
+        self.checksChanged.emit()
+
+    def check_all(self):
+        self._set_many(self._items(), Qt.Checked)
+
+    def uncheck_all(self):
+        self._set_many(self._items(), Qt.Unchecked)
+
+    def invert(self):
+        items = self._items()
+        if not items:
+            return
+        self.blockSignals(True)
+        for it in items:
+            it.setCheckState(Qt.Unchecked if it.checkState() == Qt.Checked
+                             else Qt.Checked)
+        self.blockSignals(False)
+        self.checksChanged.emit()
+
+    def toggle_selected(self):
+        """Flip the selection as a block: if any is unchecked, check all."""
+        sel = self.selectedItems()
+        if not sel:
+            return
+        target = (Qt.Checked
+                  if any(it.checkState() != Qt.Checked for it in sel)
+                  else Qt.Unchecked)
+        self._set_many(sel, target)
+
+
+def _list_toolbar(lst: CheckList) -> QHBoxLayout:
+    """All / None / Invert / Toggle selected, wired to ``lst``."""
+    row = QHBoxLayout()
+    row.setSpacing(4)
+    for text, fn, tip in (
+        ("All", lst.check_all, "Check every column"),
+        ("None", lst.uncheck_all, "Uncheck every column"),
+        ("Invert", lst.invert, "Flip every checkbox"),
+        ("Toggle sel", lst.toggle_selected,
+         "Flip the checkboxes of the selected rows.\n"
+         "Select with drag, shift-click or ctrl-click; Space does the same."),
+    ):
+        b = QPushButton(text)
+        b.setToolTip(tip)
+        b.clicked.connect(fn)
+        row.addWidget(b)
+    row.addStretch()
+    return row
+
+
+def _filter_combo() -> QComboBox:
+    """Combo you can type into to filter, instead of scrolling a long list."""
+    c = QComboBox()
+    c.setEditable(True)
+    c.setInsertPolicy(QComboBox.NoInsert)
+    comp = c.completer()
+    comp.setCompletionMode(QCompleter.PopupCompletion)
+    comp.setFilterMode(Qt.MatchContains)
+    comp.setCaseSensitivity(Qt.CaseInsensitive)
+    return c
+
+
+def _fill_combo(combo: QComboBox, labels) -> None:
+    """Repopulate a filter combo, keeping the previous choice if still there."""
+    prev = combo.currentText()
+    combo.blockSignals(True)
+    combo.clear()
+    combo.addItems(list(labels))
+    combo.setCurrentIndex(combo.findText(prev) if prev in labels else -1)
+    if prev in labels:
+        combo.setCurrentText(prev)
+    else:
+        combo.setEditText("")
+    combo.blockSignals(False)
 
 
 def _style_plot(pw: pg.PlotWidget):
@@ -340,9 +535,11 @@ class PlotPanel(QWidget):
         self._title.textChanged.connect(self._apply_title)
         left.addWidget(self._title)
 
-        self._list = _checkable_list()
-        self._list.itemChanged.connect(lambda *_: self.replot())
+        self._list = CheckList()
+        self._list.setMaximumWidth(300)
+        self._list.checksChanged.connect(self.replot)
         left.addWidget(self._list, stretch=1)
+        left.addLayout(_list_toolbar(self._list))
 
         norm_row = QHBoxLayout()
         norm_row.addWidget(QLabel("Norm:"))
@@ -493,24 +690,9 @@ class PlotPanel(QWidget):
     # ── data plumbing ───────────────────────────────────────────────────────
     def refresh_list(self):
         """Repopulate the checklist from the model, preserving checks by label."""
-        checked = {
-            self._list.item(i).text()
-            for i in range(self._list.count())
-            if self._list.item(i).checkState() == Qt.Checked
-        }
-        self._list.blockSignals(True)
-        self._list.clear()
-        self._series_by_label.clear()
-        for s in self._model.series():
-            self._series_by_label[s.label] = s
-            item = QListWidgetItem(s.label)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.Checked if s.label in checked
-                else Qt.Unchecked
-            )
-            self._list.addItem(item)
-        self._list.blockSignals(False)
+        self._series_by_label = {s.label: s for s in self._model.series()}
+        self._list.repopulate(list(self._series_by_label),
+                              kind_getter=kind_of)
         self.replot()
 
     def replot(self):
@@ -525,7 +707,7 @@ class PlotPanel(QWidget):
             item = self._list.item(i)
             if item.checkState() != Qt.Checked:
                 continue
-            s = self._series_by_label.get(item.text())
+            s = self._series_by_label.get(CheckList.label_of(item))
             if s is None:
                 continue
             x, y = xy_for(s.dataset, x_name, s.y)
@@ -694,10 +876,13 @@ class ComputeTab(BaseTab):
 
         # ── left: inputs (checkable) used by the Average box ──────────────
         left = QVBoxLayout()
-        left.addWidget(QLabel("Columns (check the ones to average):"))
-        self._inputs = QListWidget()
+        left.addWidget(QLabel(
+            "Columns  —  drag / shift-click / ctrl-click to select, "
+            "Space to toggle:"))
+        self._inputs = CheckList()
         self._inputs.setMinimumWidth(240)
         left.addWidget(self._inputs, stretch=1)
+        left.addLayout(_list_toolbar(self._inputs))
         body.addLayout(left)
 
         # ── right: Average + Subtract boxes ───────────────────────────────
@@ -717,7 +902,11 @@ class ComputeTab(BaseTab):
         r2 = QHBoxLayout()
         r2.addWidget(QLabel("Name:"))
         self._avg_name = QLineEdit()
-        self._avg_name.setPlaceholderText("e.g. noDUT_amp_avg")
+        self._avg_name.setPlaceholderText("e.g. noDUT   ->  noDUT_avg_db")
+        self._avg_name.setToolTip(
+            "Base name only. The result is stored as <name>_avg_<unit>:\n"
+            "the 'avg' tag is what the Subtract-averages box filters on,\n"
+            "and the unit token makes Auto detect the kind correctly later.")
         r2.addWidget(self._avg_name)
         avg.addLayout(r2)
         avg_btn = QPushButton("Create average →")
@@ -730,12 +919,12 @@ class ComputeTab(BaseTab):
         sub = QVBoxLayout(sub_box)
         sa = QHBoxLayout()
         sa.addWidget(QLabel("A:"))
-        self._a_combo = QComboBox()
+        self._a_combo = _filter_combo()
         sa.addWidget(self._a_combo, stretch=1)
         sub.addLayout(sa)
         sb = QHBoxLayout()
         sb.addWidget(QLabel("B:"))
-        self._b_combo = QComboBox()
+        self._b_combo = _filter_combo()
         sb.addWidget(self._b_combo, stretch=1)
         sub.addLayout(sb)
         sk = QHBoxLayout()
@@ -756,6 +945,42 @@ class ComputeTab(BaseTab):
         sub.addWidget(sub_btn)
         right.addWidget(sub_box)
 
+        # Subtract-averages box: same operation, but the pickers only offer
+        # columns carrying the "_avg_" tag, so the common baseline-removal
+        # step is a short list instead of every column ever loaded.
+        savg_box = QGroupBox("Subtract averages  (A_avg − B_avg)")
+        savg = QVBoxLayout(savg_box)
+        aa = QHBoxLayout()
+        aa.addWidget(QLabel("A:"))
+        self._aavg_combo = _filter_combo()
+        aa.addWidget(self._aavg_combo, stretch=1)
+        savg.addLayout(aa)
+        bb = QHBoxLayout()
+        bb.addWidget(QLabel("B:"))
+        self._bavg_combo = _filter_combo()
+        bb.addWidget(self._bavg_combo, stretch=1)
+        savg.addLayout(bb)
+        ak = QHBoxLayout()
+        ak.addWidget(QLabel("Kind:"))
+        self._savg_kind = QComboBox()
+        self._savg_kind.addItems(KINDS)
+        ak.addWidget(self._savg_kind)
+        ak.addStretch()
+        savg.addLayout(ak)
+        an = QHBoxLayout()
+        an.addWidget(QLabel("Name:"))
+        self._savg_name = QLineEdit()
+        self._savg_name.setPlaceholderText("blank = A_minus_B")
+        an.addWidget(self._savg_name)
+        savg.addLayout(an)
+        savg_btn = QPushButton("Create A_avg − B_avg →")
+        savg_btn.clicked.connect(self._make_subtract_avg)
+        savg.addWidget(savg_btn)
+        self._savg_hint = QLabel("")
+        self._savg_hint.setWordWrap(True)
+        savg.addWidget(self._savg_hint)
+        right.addWidget(savg_box)
+
         right.addStretch()
         body.addLayout(right, stretch=1)
 
@@ -775,40 +1000,23 @@ class ComputeTab(BaseTab):
     def _on_data_changed(self):
         smap = self._series_map()
         labels = list(smap)
-
-        # inputs checklist (preserve checks by label)
-        checked = {
-            self._inputs.item(i).text()
-            for i in range(self._inputs.count())
-            if self._inputs.item(i).checkState() == Qt.Checked
-        }
-        self._inputs.blockSignals(True)
-        self._inputs.clear()
-        for lbl in labels:
-            it = QListWidgetItem(lbl)
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(Qt.Checked if lbl in checked
-                             else Qt.Unchecked)
-            self._inputs.addItem(it)
-        self._inputs.blockSignals(False)
+        self._inputs.repopulate(labels, kind_getter=kind_of)
 
         for combo in (self._a_combo, self._b_combo):
-            prev = combo.currentText()
-            combo.blockSignals(True)
-            combo.clear()
-            combo.addItems(labels)
-            if prev in labels:
-                combo.setCurrentText(prev)
-            combo.blockSignals(False)
+            _fill_combo(combo, labels)
+
+        # The averages-only pickers see just the "_avg_" columns.
+        avg_labels = [l for l in labels if is_average(l)]
+        for combo in (self._aavg_combo, self._bavg_combo):
+            _fill_combo(combo, avg_labels)
+        self._savg_hint.setText(
+            "No averaged columns yet — create one above."
+            if not avg_labels else
+            f"{len(avg_labels)} averaged column(s) available.")
 
     def _checked_series(self) -> list:
         smap = self._series_map()
-        out = []
-        for i in range(self._inputs.count()):
-            it = self._inputs.item(i)
-            if it.checkState() == Qt.Checked and it.text() in smap:
-                out.append(smap[it.text()])
-        return out
+        return [smap[l] for l in self._inputs.checked_labels() if l in smap]
 
     # ── operations ────────────────────────────────────────────────────────
     def _make_average(self):
@@ -816,24 +1024,74 @@ class ComputeTab(BaseTab):
         if len(chosen) < 2:
             self._status.setText("Check at least two columns to average.")
             return
-        kind = kind_of(chosen[0].header, self._avg_kind.currentText())
+
+        override = self._avg_kind.currentText()
+        if override == "Auto":
+            # Averaging mixes the columns together, so one rule is applied to
+            # all of them.  Previously that rule came from the first checked
+            # column alone, which silently circular-averaged dB data (or
+            # power-averaged degrees) when the selection was mixed.
+            kinds = {kind_of(s.header) for s in chosen}
+            if len(kinds) > 1:
+                groups = {}
+                for s in chosen:
+                    groups.setdefault(kind_of(s.header), []).append(s.label)
+                detail = "; ".join(f"{k}: {', '.join(v)}"
+                                   for k, v in sorted(groups.items()))
+                self._status.setText(
+                    f"Mixed kinds in the selection ({detail}). Average them "
+                    f"separately, or set Kind explicitly to force one rule.")
+                return
+            kind = kinds.pop()
+        else:
+            kind = override
+
         result = average_arrays([s.y for s in chosen], kind)
-        name = self._avg_name.text() or f"avg_{kind}"
+        base = self._avg_name.text().strip() or "columns"
+        # <name>_avg_<unit>: the avg tag is what the Subtract-averages box
+        # filters on, and the unit token keeps Auto correct downstream.
+        name = f"{base}_{AVG_TAG}_{unit_token(kind)}"
         used = self._model.add_computed(name, result, source=chosen[0].dataset)
-        self._status.setText(f"Created '{used}' = {kind} mean of {len(chosen)} columns.")
+        self._status.setText(
+            f"Created '{used}' = {kind} mean of {len(chosen)} columns.")
+
+    def _series_from(self, combo) -> object:
+        """Look a series up from a filter combo, tolerating stray whitespace."""
+        smap = self._series_map()
+        txt = combo.currentText().strip()
+        return smap.get(txt)
+
+    def _subtract(self, a, b, kind_combo, name_field, tag: str):
+        """Shared body of the two subtract boxes."""
+        if a is None or b is None:
+            self._status.setText(f"{tag}: pick both A and B.")
+            return
+        override = kind_combo.currentText()
+        if override == "Auto":
+            ka, kb = kind_of(a.header), kind_of(b.header)
+            if ka != kb:
+                self._status.setText(
+                    f"{tag}: A is {ka} but B is {kb}. Set Kind explicitly if "
+                    f"you really mean to subtract them.")
+                return
+            kind = ka
+        else:
+            kind = override
+        result = subtract_arrays(a.y, b.y, kind)
+        name = name_field.text().strip() or f"{a.header}_minus_{b.header}"
+        used = self._model.add_computed(name, result, source=a.dataset)
+        self._status.setText(
+            f"Created '{used}' = ({a.label}) − ({b.label})  [{kind}].")
 
     def _make_subtract(self):
-        smap = self._series_map()
-        a = smap.get(self._a_combo.currentText())
-        b = smap.get(self._b_combo.currentText())
-        if a is None or b is None:
-            self._status.setText("Pick both A and B.")
-            return
-        kind = kind_of(a.header, self._sub_kind.currentText())
-        result = subtract_arrays(a.y, b.y, kind)
-        name = self._sub_name.text() or f"{a.header}_minus_{b.header}"
-        used = self._model.add_computed(name, result, source=a.dataset)
-        self._status.setText(f"Created '{used}' = ({a.label}) − ({b.label})  [{kind}].")
+        self._subtract(self._series_from(self._a_combo),
+                       self._series_from(self._b_combo),
+                       self._sub_kind, self._sub_name, "Subtract")
+
+    def _make_subtract_avg(self):
+        self._subtract(self._series_from(self._aavg_combo),
+                       self._series_from(self._bavg_combo),
+                       self._savg_kind, self._savg_name, "Subtract averages")
 
     def _save_csv(self):
         comp = self._model.computed
