@@ -714,6 +714,10 @@ class RollingPanel(QWidget):
         self._rec_t0     = None
         self._rec_count  = 0
         self._rec_path   = None
+        # Recorded amplitudes are meaningless without their unit: after
+        # calibration the column is dBm, before it is dBFS.
+        self._power_unit = 'dBFS'
+        self._power_cal_db = 0.0
 
         self._build_ui()
 
@@ -808,6 +812,14 @@ class RollingPanel(QWidget):
     def set_path_provider(self, fn):
         """fn() -> str: returns a fresh output path each time recording starts."""
         self._path_provider = fn
+
+    def set_power_cal(self, offset_db, unit=None):
+        """Remember the calibration so the CSV header can name the unit."""
+        self._power_cal_db = float(offset_db)
+        if unit:
+            self._power_unit = str(unit)
+        self._pw_amp.setLabel('left', self._power_unit,
+                              **{'color': _TEXT_DIM, 'font-size': '8pt'})
 
     def set_window_s(self, window_s):
         """Change the rolling span and redraw at once.
@@ -962,7 +974,12 @@ class RollingPanel(QWidget):
             self._rec_file = None
             return
         self._rec_writer = csv.writer(self._rec_file)
-        self._rec_writer.writerow(('elapsed_s', 'amplitude_dB', 'phase_deg'))
+        # Name the amplitude column after the unit actually in force, so a
+        # recording is still interpretable months later.
+        self._rec_writer.writerow(
+            (f'elapsed_s', f'amplitude_{self._power_unit}', 'phase_deg'))
+        print(f'[rec] amplitude unit={self._power_unit} '
+              f'cal_offset={self._power_cal_db:+g} dB', flush=True)
         self._rec_t0    = time.monotonic()
         self._rec_count = 0
         self._rec_path  = path

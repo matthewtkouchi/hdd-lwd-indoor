@@ -62,6 +62,7 @@ class UnifiedDashboard(QWidget):
 
         # ── bottom: rolling amplitude + phase vs time ─────────────────────
         self._rolling_panel = RollingPanel(window_s=rolling_window_s)
+        self._rolling_panel.set_power_cal(power_cal_offset_db, power_unit)
         self._eq.sample_ready.connect(self._rolling_panel.add_sample)
 
         # vertical splitter: top row | rolling time-series
@@ -88,6 +89,7 @@ class UnifiedDashboard(QWidget):
 
     def set_power_cal(self, offset_db, unit=None):
         self._eq.set_power_cal(offset_db, unit)
+        self._rolling_panel.set_power_cal(offset_db, unit)
 
     def set_refresh_ms(self, refresh_ms):
         self._phase_panel.set_refresh_ms(refresh_ms)

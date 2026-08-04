@@ -43,8 +43,10 @@ except Exception:                       # ui_kit optional; fall back to neutral 
 # Editable fields the ribbon exposes (subset of the full profile).
 RIBBON_KEYS = ["samp_rate_hz", "center_freq_hz", "fft_size",
                "plot_fps", "band_hz", "note", "ema_alpha",
-               "lpf_cutoff_hz", "spectrum_span_hz", "power_cal_offset_db"]
+               "lpf_cutoff_hz", "spectrum_span_hz", "power_cal_offset_db",
+               "power_unit"]
 FFT_SIZES = [1024, 2048, 4096, 8192, 16384]
+POWER_UNITS = ["dBFS", "dBm"]
 
 
 def _fmt_rate(hz):
@@ -220,13 +222,20 @@ class SettingsRibbon(QWidget):
                "power. Loopback TX OUT1 into RX IN1, read SIG 1, then set\n"
                "this to (TX dBm - reading). 0 = leave the readout in dBFS.")
 
+        self.unit_combo = QComboBox()
+        for u in POWER_UNITS:
+            self.unit_combo.addItem(u, u)
+        _field(r3, "unit:", self.unit_combo, 1, 60,
+               "Label for the amplitude readout and the CSV column.\n"
+               "dBFS is the raw scale; switch to dBm once power_cal is set.")
+
         self.note_edit = QLineEdit()
         _field(r3, "note:", self.note_edit, 2, 90,
                "Names the capture files.")
         outer.addLayout(r3)
 
         # mark dirty on any edit
-        for w in (self.samp_combo, self.fft_combo):
+        for w in (self.samp_combo, self.fft_combo, self.unit_combo):
             w.currentIndexChanged.connect(self._update_dirty)
         for w in (self.freq_edit, self.fps_edit, self.alpha_edit,
                   self.band_lo, self.band_hi, self.note_edit,
@@ -259,6 +268,8 @@ class SettingsRibbon(QWidget):
         self.note_edit.setText(str(d["note"]))
         self.lpf_edit.setText(f'{float(d["lpf_cutoff_hz"]):g}')
         self.cal_edit.setText(f'{float(d["power_cal_offset_db"]):g}')
+        k = self.unit_combo.findData(str(d["power_unit"]))
+        self.unit_combo.setCurrentIndex(k if k >= 0 else 0)
         self.span_edit.setText(f'{float(d["spectrum_span_hz"]):g}')
 
     def _get_fields(self):
@@ -296,6 +307,7 @@ class SettingsRibbon(QWidget):
             "lpf_cutoff_hz": lpf,
             "spectrum_span_hz": span,
             "power_cal_offset_db": cal,
+            "power_unit": str(self.unit_combo.currentData()),
         }
 
     def _get_fields_safe(self):
