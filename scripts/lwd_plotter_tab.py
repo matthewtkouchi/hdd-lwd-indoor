@@ -690,9 +690,12 @@ class PlotPanel(QWidget):
     # ── data plumbing ───────────────────────────────────────────────────────
     def refresh_list(self):
         """Repopulate the checklist from the model, preserving checks by label."""
-        self._series_by_label = {s.label: s for s in self._model.series()}
-        self._list.repopulate(list(self._series_by_label),
-                              kind_getter=kind_of)
+        series = self._model.series()
+        self._series_by_label = {s.label: s for s in series}
+        # List every series, not the deduplicated label set: two datasets can
+        # legitimately produce the same label, and collapsing them would hide
+        # a loaded file's columns entirely.
+        self._list.repopulate([s.label for s in series], kind_getter=kind_of)
         self.replot()
 
     def replot(self):
