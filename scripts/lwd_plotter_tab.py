@@ -361,20 +361,37 @@ class CheckList(QListWidget):
         return item.text() if lbl is None else lbl
 
     def _items(self):
-        return [self.item(i) for i in range(self.count())]
+        """Data rows only -- group headings carry no UserRole."""
+        return [self.item(i) for i in range(self.count())
+                if self.item(i).data(Qt.UserRole) is not None]
 
     def checked_labels(self) -> list:
         return [self.label_of(it) for it in self._items()
                 if it.checkState() == Qt.Checked]
 
-    def repopulate(self, labels, keep_checked=None, kind_getter=None):
-        """Rebuild from ``labels``, preserving checks and selection."""
+    def repopulate(self, labels, keep_checked=None, kind_getter=None,
+                   group_getter=None):
+        """Rebuild from ``labels``, preserving checks and selection.
+
+        ``group_getter(label) -> str`` inserts a non-selectable heading
+        before each block, so amplitudes, phases and axis columns stay
+        together instead of interleaving file by file.  Headings carry no
+        UserRole, which is how the bulk operations skip them.
+        """
         if keep_checked is None:
             keep_checked = set(self.checked_labels())
         selected = {self.label_of(it) for it in self.selectedItems()}
         self.blockSignals(True)
         self.clear()
+        current_group = None
         for lbl in labels:
+            if group_getter is not None:
+                g = group_getter(lbl)
+                if g != current_group:
+                    current_group = g
+                    head = QListWidgetItem(f"── {g} ──")
+                    head.setFlags(Qt.NoItemFlags)      # no check, no select
+                    self.addItem(head)
             text = lbl
             if kind_getter is not None:
                 text = f"{lbl}   [{kind_getter(lbl)}]"
@@ -425,8 +442,13 @@ class CheckList(QListWidget):
         self._set_many(sel, target)
 
 
-def _list_toolbar(lst: CheckList) -> QHBoxLayout:
-    """All / None / Invert / Toggle selected, wired to ``lst``."""
+def _list_toolbar(lst: CheckList, on_axis_toggle=None) -> QHBoxLayout:
+    """All / None / Invert / Toggle selected, wired to ``lst``.
+
+    ``on_axis_toggle(bool)`` adds a checkbox that puts the time/distance
+    columns back in the list; they are hidden by default because they are
+    x-axes, not traces.
+    """
     row = QHBoxLayout()
     row.setSpacing(4)
     for text, fn, tip in (
@@ -441,6 +463,12 @@ def _list_toolbar(lst: CheckList) -> QHBoxLayout:
         b.setToolTip(tip)
         b.clicked.connect(fn)
         row.addWidget(b)
+    if on_axis_toggle is not None:
+        cb = QCheckBox("axis cols")
+        cb.setToolTip("Also list time / distance / index columns.\n"
+                      "Hidden by default: they are x-axes, not traces.")
+        cb.toggled.connect(on_axis_toggle)
+        row.addWidget(cb)
     row.addStretch()
     return row
 
@@ -508,6 +536,26 @@ def _looks_like_axis(name: str) -> bool:
     return any(k in n for k in _AXIS_HINTS)
 
 
+# Column lists are grouped in this order so amplitudes, phases and the
+# time/distance axes stay together instead of interleaving per file.
+GROUP_ORDER = ["Axis", "dB", "Phase", "Linear"]
+
+
+def group_of(name: str) -> str:
+    """Which block of the column list ``name`` belongs in."""
+    if _looks_like_axis(name):
+        return "Axis"
+    return kind_of(name)
+
+
+def sort_by_group(labels, key=None):
+    """Stable sort into GROUP_ORDER, preserving file order within a group."""
+    def rank(lbl):
+        g = group_of(key(lbl) if key else lbl)
+        return GROUP_ORDER.index(g) if g in GROUP_ORDER else len(GROUP_ORDER)
+    return sorted(labels, key=rank)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #   Tab 1 — one PlotPanel per chart, each with its own column picker
 # ══════════════════════════════════════════════════════════════════════════════
@@ -539,7 +587,8 @@ class PlotPanel(QWidget):
         self._list.setMaximumWidth(300)
         self._list.checksChanged.connect(self.replot)
         left.addWidget(self._list, stretch=1)
-        left.addLayout(_list_toolbar(self._list))
+        self._show_axis = False
+        left.addLayout(_list_toolbar(self._list, self._on_axis_toggle))
 
         norm_row = QHBoxLayout()
         norm_row.addWidget(QLabel("Norm:"))
@@ -688,6 +737,10 @@ class PlotPanel(QWidget):
         return ys
 
     # ── data plumbing ───────────────────────────────────────────────────────
+    def _on_axis_toggle(self, on: bool):
+        self._show_axis = bool(on)
+        self.refresh_list()
+
     def refresh_list(self):
         """Repopulate the checklist from the model, preserving checks by label."""
         series = self._model.series()
@@ -695,7 +748,15 @@ class PlotPanel(QWidget):
         # List every series, not the deduplicated label set: two datasets can
         # legitimately produce the same label, and collapsing them would hide
         # a loaded file's columns entirely.
-        self._list.repopulate([s.label for s in series], kind_getter=kind_of)
+        labels = [s.label for s in series]
+        if not self._show_axis:
+            labels = [s.label for s in series
+                      if not _looks_like_axis(s.header)]
+        labels = sort_by_group(
+            labels, key=lambda l: self._series_by_label[l].header)
+        self._list.repopulate(
+            labels, kind_getter=kind_of,
+            group_getter=lambda l: group_of(self._series_by_label[l].header))
         self.replot()
 
     def replot(self):
@@ -885,7 +946,8 @@ class ComputeTab(BaseTab):
         self._inputs = CheckList()
         self._inputs.setMinimumWidth(240)
         left.addWidget(self._inputs, stretch=1)
-        left.addLayout(_list_toolbar(self._inputs))
+        self._show_axis = False
+        left.addLayout(_list_toolbar(self._inputs, self._on_axis_toggle))
         body.addLayout(left)
 
         # ── right: Average + Subtract boxes ───────────────────────────────
@@ -1000,10 +1062,21 @@ class ComputeTab(BaseTab):
     def _series_map(self) -> dict:
         return {s.label: s for s in self._model.series()}
 
+    def _on_axis_toggle(self, on: bool):
+        self._show_axis = bool(on)
+        self._on_data_changed()
+
     def _on_data_changed(self):
         smap = self._series_map()
         labels = list(smap)
-        self._inputs.repopulate(labels, kind_getter=kind_of)
+        if not self._show_axis:
+            # elapsed_s and friends are x-axes; averaging or subtracting
+            # them is never what is wanted, so keep them out of the way.
+            labels = [l for l in labels if not _looks_like_axis(smap[l].header)]
+        labels = sort_by_group(labels, key=lambda l: smap[l].header)
+        self._inputs.repopulate(
+            labels, kind_getter=kind_of,
+            group_getter=lambda l: group_of(smap[l].header))
 
         for combo in (self._a_combo, self._b_combo):
             _fill_combo(combo, labels)
